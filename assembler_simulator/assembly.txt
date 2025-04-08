@@ -1,0 +1,44 @@
+#day la comment
+mrelease
+msettilemi 10 # imm = new mtilem
+msettilem tr1 # rs1 = new mtilem
+msettileki 11 # imm = new mtilek
+msettilek tr0 # rs1 = new mtilek
+msettileni 12 # imm = new mtilen
+msettilen tr2 # rs1 = new mtilen
+mfmacc.h.e5 tr2 tr1 tr0
+mfmacc.h.e4 tr2 tr1 tr0
+mfmacc.bf16.e5 tr2, tr1, tr0
+mfmacc.s.e5 tr2, tr1, tr0
+mfmacc.s.e4 tr2, tr1, tr0
+mfmacc.h tr2, tr1, tr0
+mfmacc.s.h tr2, tr1, tr0
+mfmacc.s.bf16 tr2, tr1, tr0
+mfmacc.s.tf32 tr2, tr1, tr0
+mfmacc.s tr2, tr1, tr0
+mfmacc.d.s tr2, tr1, tr0
+mfmacc.d tr2, tr1, tr0
+mmacc.w.b tr2, tr1, tr0 #signed matrix multiply
+mmaccu.w.b tr2, tr1, tr0 #unsigned matrix multiply
+mmaccus.w.b tr2, tr1, tr0 #unsigned-signed matrix multiply
+mmaccsu.w.b tr2, tr1, tr0 #signed-unsigned matrix multiply
+pmmacc.w.b tr2, tr1, tr0
+pmmaccu.w.b tr2, tr1, tr0
+pmmaaccus.w.b tr2, tr1, tr0
+pmmaccsu.w.b tr2, tr1, tr0
+mmacc.d.h tr2, tr1, tr0
+mmaccu.d.h tr2, tr1, tr0
+mmaccus.d.h tr2, tr1, tr0
+mmaccsu.d.h tr2, tr1, tr0
+mmacc.w.bp tr2, tr1, tr0
+mlae8 tr2, (x0), x1
+mzero tr2
+mmov.mm tr1, tr0
+mmovb.x.m x1, tr1, x2
+mmovb.m.x tr0, x1, x2
+mdupb.m.x tr0, x2
+mpack tr2, tr1, tr0
+mrslidedown tr1, tr0, 5
+madd.w.mm tr2, tr1, tr0
+madd.w.mv.i tr2, tr1, tr0[2]
+mfcvth.e4.h tr1, tr0
