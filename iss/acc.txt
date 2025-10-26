@@ -1,0 +1,25 @@
+--- Accumulator Registers (acc0-acc3) --- (Integer Only)
+
+acc0:
+  Row 0: 0 0 0 0
+  Row 1: 0 0 0 0
+  Row 2: 0 0 0 0
+  Row 3: 0 0 0 0
+
+acc1:
+  Row 0: 0 0 0 0
+  Row 1: 0 0 0 0
+  Row 2: 0 0 0 0
+  Row 3: 0 0 0 0
+
+acc2:
+  Row 0: 0 0 0 0
+  Row 1: 0 0 0 0
+  Row 2: 0 0 0 0
+  Row 3: 0 0 0 0
+
+acc3:
+  Row 0: 0 0 0 0
+  Row 1: 0 0 0 0
+  Row 2: 0 0 0 0
+  Row 3: 0 0 0 0

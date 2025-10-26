@@ -1,0 +1,8 @@
+msettilemi 4 
+msettileki 4
+msettileni 4
+mfmacc.h acc0, tr0, tr1
+mfmacc.s acc1, tr0, tr1
+mfmacc.h.e4 acc2, tr0, tr1
+mfmacc.bf16.e4 acc3, tr0, tr1
+
