@@ -93,7 +93,7 @@ def assemble_config(tokens, info):
         rs1 = imm & 0x1F        # 5 bit thấp
     elif info["operand_type"] == "register":
         operand = tokens[1]
-        rs1 = encode_register(operand)
+        rs1 = encode_riscv_register(operand)
         rs2 = 0
     else:
         raise ValueError(f"Loại toán hạng không hợp lệ: {info['operand_type']}")
@@ -310,7 +310,7 @@ matrix_multiply_instructions = {
     "pmmacc.w.b": {"func": 0b0001, "uop": 0b01, "size_sup": 0b111, "s_size": 0b00, "func3": 0b000, "d_size": 0b10, "major_opcode": 0b0101011, "instr_type": "MULTIPLY"},
     "pmmaccu.w.b": {"func": 0b0001, "uop": 0b01, "size_sup": 0b100, "s_size": 0b00, "func3": 0b000, "d_size": 0b10, "major_opcode": 0b0101011,"instr_type": "MULTIPLY"},
     "pmmaaccus.w.b": {"func": 0b0001, "uop": 0b01, "size_sup": 0b101, "s_size": 0b00, "func3": 0b000, "d_size": 0b10, "major_opcode": 0b0101011, "instr_type": "MULTIPLY"},
-    "pmmaccsu.w.b": {"func": 0b0001, "uop": 0b01, "size_sup": 0b110, "func3": 0b000, "d_size": 0b10, "major_opcode": 0b0101011, "instr_type": "MULTIPLY"},
+    "pmmaccsu.w.b": {"func": 0b0001, "uop": 0b01, "size_sup": 0b110, "func3": 0b000, "d_size": 0b10, "major_opcode": 0b1011011, "instr_type": "MULTIPLY"},
     "mmacc.d.h": {"func": 0b0001,"uop": 0b01,"size_sup": 0b011, "s_size": 0b01, "func3": 0b000, "d_size": 0b11, "major_opcode": 0b0101011, "instr_type": "MULTIPLY"},
     "mmaccu.d.h": {"func": 0b0001, "uop": 0b01, "size_sup": 0b000, "s_size": 0b01, "func3": 0b000, "d_size": 0b11, "major_opcode": 0b0101011, "instr_type": "MULTIPLY"},
     "mmaccus.d.h": {"func": 0b0001, "uop": 0b01, "size_sup": 0b001, "s_size": 0b01, "func3": 0b000, "d_size": 0b11, "major_opcode": 0b0101011, "instr_type": "MULTIPLY"},
