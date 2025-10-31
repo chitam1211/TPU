@@ -256,6 +256,16 @@ def handle_matmul_instruction(instruction):
         dest_bits_conv, dest_signed_conv = float_to_bits32, bits_to_signed_int32
         source_bits, dest_bits = 16, 32
     # --- Quad-Widen ---
+    # --- Float ---
+    elif func4 == "0000" and s_size == "00" and d_size == "10": # mfmacc.s.eX (fp8->fp32)
+        instr_name = "mfmacc.s.e5" if size_sup == "000" else "mfmacc.s.e4"
+        source_bits_conv = float_to_bits8_e5m2 if size_sup == "000" else float_to_bits8_e4m3
+        source_signed_conv = bits_to_signed_int8
+        dest_bits_conv, dest_signed_conv = float_to_bits32, bits_to_signed_int32 # Đích là FP32
+        source_bits, dest_bits = 8, 32
+        is_float_op = True
+
+    # --- Integer ---
     elif func4 == "0001" and s_size == "00" and d_size == "10": # mmacc.w.b (int8->int32)
         instr_name = "mmacc.w.b"
         source_file, acc_file = "matrix.txt", "acc.txt"
