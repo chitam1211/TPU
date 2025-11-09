@@ -1,95 +1,115 @@
-import os
-from config import handle_config_instruction
-from matmul import handle_matmul_instruction # <<< THÊM IMPORT MỚI
-from matrix_input import *
-def decode_and_execute(instruction):
-    """
-    Hàm điều phối (Dispatcher) không trạng thái.
-    Nhiệm vụ: Giải mã các bit chính và gọi hàm xử lý tương ứng.
-    """
-    # Các trường bit chính để xác định nhóm lệnh (đánh số từ MSB=0 đến LSB=31)
-    opcode = instruction[25:32]      # bits 6-0
-    func3  = instruction[17:20]      # bits 14-12
-    uop    = instruction[4:6]        # bits 27-26
-    func4  = instruction[0:4]        # bits 31-28 (cần cho matmul)
+from .matrix_input import *
 
-    print(f"  [Debug] opcode: {opcode}, func3: {func3}, uop: {uop}, func4: {func4}")
-    
-    # --- Bắt đầu logic điều phối ---
-    
-    # Kiểm tra Opcode chính = custom-1 (0101011)
-    if opcode == "0101011":
-        # Nhóm 1: Configuration Instructions
-        if uop == "00" and func3 == "000":
-            print("  -> Dispatching to: Configuration Handler")
-            handle_config_instruction(instruction)
+# Import các thành phần (components)
+from .components import RegisterFile, CSRFile, MatrixAccelerator, MainMemory
+
+class Simulator:
+    def __init__(self):
+        """Khởi tạo tất cả các thành phần phần cứng trong RAM."""
+        self.pc = 0
+        self.instructions = []
         
-        # --- KHỐI LOGIC MỚI CHO MATRIX MULTIPLICATION ---
-        # Dựa trên Bảng 4, nhóm lệnh này có uop=01 và func4=0000
-        elif uop == "01" and func3 == "000" and func4 == "0000":
-            print("  -> Dispatching to: Matrix Multiplication Handler")
-            handle_matmul_instruction(instruction)
-        
-        # (Trong tương lai, bạn có thể thêm các nhóm lệnh khác ở đây)
-        # Ví dụ cho nhóm lệnh Integer Matrix Multiplication (func4=0001)
-        # elif uop == "01" and func3 == "000" and func4 == "0001":
-        #     print("  -> Dispatching to: Integer Matrix Multiplication Handler")
-        #     handle_integer_matmul_instruction(instruction)
+        # 1. Tạo các đối tượng thành phần
+        self.gpr = RegisterFile()
+        self.csr = CSRFile()
+        self.memory = MainMemory()
+        # 2. Tạo Bộ tăng tốc và inject các tham chiếu
+        #    để nó có thể giao tiếp với GPR, CSR và Memory
+        self.matrix_accelerator = MatrixAccelerator(self.csr, self.gpr, self.memory)
+
+    def load_program(self, machine_code_list):
+        """Nạp mã máy (danh sách các chuỗi 32-bit) vào bộ nhớ lệnh."""
+        self.instructions = machine_code_list
+        self.pc = 0 # Reset PC về 0
+
+    def run(self):
+        """Vòng lặp CPU chính, chạy trong RAM."""
+        print(f"\n--- Bắt đầu Vòng lặp Mô phỏng (Chạy trong RAM) ---")
+        while True:
+            # 1. Tính toán địa chỉ lệnh
+            if self.pc < 0:
+                print(f"  [Error] PC âm: {self.pc}. Dừng mô phỏng.")
+                break
+            instr_index = self.pc // 4 # Mỗi lệnh 4 bytes
+
+            # 2. Kiểm tra kết thúc chương trình
+            if instr_index >= len(self.instructions):
+                break
             
-        else:
-            print(f"  -> ERROR: Unknown instruction group for custom-1 opcode (uop={uop}, func3={func3}, func4={func4})")
-    
-    # (Trong tương lai, bạn có thể thêm logic cho các opcode cơ bản khác của RISC-V)
-    # elif opcode == "0010011": # Opcode for I-type instructions like ADDI
-    #     handle_i_type_instruction(instruction)
+            # 3. Nạp lệnh
+            instruction = self.instructions[instr_index]
+            print(f"\nPC: 0x{self.pc:08x} | Executing: {instruction}")
+            
+            # 4. Giữ PC cũ để kiểm tra lệnh nhảy
+            old_pc = self.pc
+            
+            # 5. Giải mã và Thực thi
+            self.decode_and_execute(instruction)
+            
+            # 6. Cập nhật PC (chỉ khi lệnh không phải là lệnh nhảy)
+            if self.pc == old_pc:
+                self.pc += 4
         
-    else:
-        print(f"  -> ERROR: Unknown or unsupported instruction opcode: {opcode}")
+        print("--- Vòng lặp Mô phỏng Kết thúc ---")
 
-# =============================================================================
-# CÁC HÀM CÒN LẠI (Simulator, main) KHÔNG THAY ĐỔI
-# Chúng được giữ lại để bạn có bối cảnh hoàn chỉnh của tệp ISS.py
-# =============================================================================
+    # --- (SỬA LỖI 1: HÀM NÀY PHẢI NẰM BÊN TRONG CLASS SIMULATOR) ---
+    def decode_and_execute(self, instruction):
+            """
+            Bộ điều phối (Dispatcher) của CPU.
+            Gọi đúng phương thức của thành phần dựa trên opcode.
+            """
+            # --- 1. Trích xuất các trường bit chính ---
+            opcode = instruction[25:32]      # bits 6-0
+            func3  = instruction[17:20]      # bits 14-12
+            uop    = instruction[4:6]        # bits 27-26
+            func4  = instruction[0:4]        # bits 31-28
+            
+            # Chỉ trích xuất d_size cho lệnh Load/Store (vì hàm đó cần)
+            d_size_str = instruction[20:22]      # bits 11-10
 
-def Simulator(instruction_list):
-    """
-    Vòng lặp CPU chính.
-    """
-    print(f"\n--- Starting Simulation ({len(instruction_list)} instructions) ---")
-    
-    for instruction_index, instruction in enumerate(instruction_list):
-        pc_address = instruction_index * 4
-        print(f"\nPC: 0x{pc_address:08x} | Executing: {instruction}")
-        decode_and_execute(instruction)
-        
-    print("\n--- Simulation Finished ---")
+            print(f"  [Debug] opcode: {opcode}, func3: {func3}, uop: {uop}, func4: {func4}")
+            
+            # --- 2. Logic Điều phối (Dispatch) ---
+            
+            # Opcode cho các lệnh Matrix (custom-1)
+            if opcode == "0101011":
 
-def main():
-    """
-    Hàm chính để nạp mã máy và khởi chạy simulator.
-    """
-    input_file_path = r"F:\TPU\TPU\assembler\machine_code.txt"
-    
-    try:
-        with open(input_file_path, "r") as f:
-            instructions = [line.strip() for line in f if line.strip() and not line.startswith('#')]
-    except FileNotFoundError:
-        print(f"FATAL ERROR: Input file not found at '{input_file_path}'")
-        return
+                # --- NHÓM LỆNH func3 = 000 ---
+                if func3 == "000":
+                    
+                    # A. CONFIG (uop = 00)
+                    if uop == "00":
+                        print("  -> Dispatching to: MatrixAccelerator (Config)")
+                        self.matrix_accelerator.execute_config(instruction)
+                    
+                    # B. LOAD/STORE (uop = 01)
+                    elif uop == "01":
+                        print("  -> Dispatching to: MatrixAccelerator (Load/Store)")
+                        self.matrix_accelerator.execute_load_store(instruction)
 
-    if not instructions:
-        print(f"Warning: Input file '{input_file_path}' is empty. Nothing to simulate.")
-        return
+                    # C. MATMUL (uop = 10)
+                    elif uop == "10":
+                        print("  -> Dispatching to: MatrixAccelerator (Matmul)")
+                        # GỌI HÀM THEO YÊU CẦU CỦA BẠN (chỉ 1 tham số)
+                        self.matrix_accelerator.execute_matmul(instruction)
 
-    print("="*50)
-    print("RISC-V Matrix Extension Simulator")
-    print(f"Loaded {len(instructions)} instructions.")
-    #run_interactive_setup()
-    print("="*50)
-    
-    Simulator(instructions)
-    print("\n--- Simulation Complete ---")
+                    # D. MISC (uop = 11)
+                    elif uop == "11":
+                        print("  -> Dispatching to: MatrixAccelerator (MISC)")
+                        # Gọi hàm placeholder
+                        self.matrix_accelerator.execute_misc(instruction)
 
-if __name__ == "__main__":
-    main()
+                    else:
+                        print(f"  -> ERROR: Unknown custom-1 group (func3=000, uop={uop})")
 
+                # --- NHÓM LỆNH func3 = 001 (Element-Wise) ---
+                elif func3 == "001":
+                    print("  -> Dispatching to: MatrixAccelerator (Element-Wise)")
+                    # Gọi hàm placeholder
+                    self.matrix_accelerator.execute_element_wise(instruction)
+
+                else:
+                    print(f"  -> ERROR: Unknown custom-1 instruction group (func3={func3})")
+            
+            else:
+                print(f"  -> ERROR: Unknown or unsupported instruction opcode: {opcode}")

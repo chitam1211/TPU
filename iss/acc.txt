@@ -1,4 +1,4 @@
---- Accumulator Registers (acc0-acc3) --- (Integer Only)
+--- Accumulator Registers (acc0-acc3) (Integer Only)---
 
 acc0:
   Row 0: 0 0 0 0

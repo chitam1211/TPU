@@ -5,4 +5,8 @@ mfmacc.h acc0, tr0, tr1
 mfmacc.s acc1, tr0, tr1
 mfmacc.h.e4 acc2, tr0, tr1
 mfmacc.bf16.e4 acc3, tr0, tr1
+mmacc.w.b acc0, tr0, tr1
+mmaccu.w.b acc1, tr1, tr2
+mmaccus.w.b acc2, tr2, tr3
+mmaccsu.w.b acc3, tr0, tr3
 

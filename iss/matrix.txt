@@ -1,4 +1,4 @@
---- Tile Registers (tr0-tr3) --- (Integer Only)
+--- Tile Registers (tr0-tr3) (Integer Only)---
 
 tr0:
   Row 0: 0 0 0 0
