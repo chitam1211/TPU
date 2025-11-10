@@ -60,7 +60,11 @@ class MatrixAccelerator(ConfigLogic, MatmulLogic, LoadStoreLogic):
         self.acc_int = [[[0]*ELEMENTS_PER_ROW_TR for _ in range(ROWNUM)] for _ in range(4)]
         self.tr_float = [[[0.0]*ELEMENTS_PER_ROW_TR for _ in range(ROWNUM)] for _ in range(4)]
         self.acc_float = [[[0.0]*ELEMENTS_PER_ROW_TR for _ in range(ROWNUM)] for _ in range(4)]
-        self.acc_dest_bits = [32] * 4
+        
+        # Metadata: Lưu destination bit-width cho mỗi accumulator
+        # Tách riêng cho int và float vì chúng độc lập
+        self.acc_dest_bits_float = [32] * 4  # FP32 by default
+        self.acc_dest_bits_int = [32] * 4    # INT32 by default
 
 
 class MainMemory:

@@ -175,9 +175,9 @@ class MatmulLogic:
 
         # --- LƯU LẠI KIỂU DỮ LIỆU CỦA THANH GHI ĐÍCH ---
         if is_float_op:
-            self.acc_dest_bits[md_idx] = dest_bits
+            self.acc_dest_bits_float[md_idx] = dest_bits
         else:
-            self.acc_dest_bits[md_idx] = 32 # Giả sử int-dest luôn là 32-bit
+            self.acc_dest_bits_int[md_idx] = dest_bits  # Lưu đúng bit-width của integer
 
         # In thông tin Widen Factor
         widen_factor = dest_bits // source_bits if source_bits > 0 else 1
@@ -203,7 +203,11 @@ class MatmulLogic:
             mat_B_full = self.tr_int[ms2_idx]
             mat_C_old = self.acc_int[md_idx]
         
-# 4. Thực hiện Tính toán (MÔ PHỎNG ĐỘ CHÍNH XÁC)
+        # 4. Thực hiện Tính toán (MÔ PHỎNG ĐỘ CHÍNH XÁC)
+        # Algorithm: C[m,n] += Σ(A[m,k] * B[k,n]) for k=0..K-1
+        # Matrix A: [M, K] in tr_source1
+        # Matrix B: [K, N] in tr_source2
+        # Matrix C: [M, N] in acc_dest
         mat_C_new = [[mat_C_old[r][c] for c in range(N)] for r in range(M)]
         print("    - Starting computation loop (with precision simulation)...")
         for m in range(M):
@@ -216,8 +220,8 @@ class MatmulLogic:
 
                 dot_product = 0.0
                 for k in range(K):
-                    a_full_precision = mat_A_full[m][k]
-                    b_full_precision = mat_B_full[n][k]
+                    a_full_precision = mat_A_full[m][k]  # A[m,k]
+                    b_full_precision = mat_B_full[k][n]  # B[k,n] - FIXED!
 
                     if is_float_op:
                         a_bits = float_to_source_bits(a_full_precision)

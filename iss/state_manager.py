@@ -240,9 +240,71 @@ def save_state_to_files(sim):
                     "--- Tile Registers (tr0-tr3) (Integer Only)---", "tr", 
                     sim.matrix_accelerator.tr_int, is_float_file=False)
 
-    _save_matrix_file(os.path.join(script_dir, "acc.txt"), 
-                    "--- Accumulator Registers (acc0-acc3) (Integer Only)---", "acc", 
-                    sim.matrix_accelerator.acc_int, is_float_file=False)
+    # --- (THAY THẾ) LOGIC GHI ACC.TXT (INTEGER) ---
+    try:
+        with open(os.path.join(script_dir, "acc.txt"), "w") as f:
+            f.write("--- Accumulator Registers (acc0-acc3) (Integer Only) ---\n")
+            
+            # Lặp qua 4 thanh ghi ACC
+            for i in range(4):
+                reg_name = f"acc{i}"
+                f.write(f"\n{reg_name}:\n")
+                
+                # Lấy đúng bit-width cho thanh ghi INTEGER này
+                dest_bits = sim.matrix_accelerator.acc_dest_bits_int[i]
+                
+                # Xác định tên format
+                if dest_bits == 8:
+                    bit_width_name = "INT8"
+                elif dest_bits == 16:
+                    bit_width_name = "INT16"
+                else:
+                    bit_width_name = "INT32"
+                
+                # Ghi tiêu đề với thông tin bit-width
+                f.write(f"  (Destination: {bit_width_name}, {dest_bits}-bit)\n")
+                
+                # Lặp qua 4 hàng của thanh ghi
+                for r in range(ROWNUM):
+                    row_data = sim.matrix_accelerator.acc_int[i][r]
+                    
+                    # Chuyển sang integer và áp dụng mask theo bit-width
+                    int_parts = []
+                    bit_pattern_parts = []
+                    
+                    for val in row_data:
+                        int_val = int(val)
+                        
+                        # Mask theo bit-width
+                        if dest_bits == 8:
+                            masked_val = int_val & 0xFF
+                        elif dest_bits == 16:
+                            masked_val = int_val & 0xFFFF
+                        else:  # 32-bit
+                            masked_val = int_val & 0xFFFFFFFF
+                        
+                        # Giá trị signed (human-readable)
+                        int_parts.append(str(int_val))
+
+                        # Bit pattern: show signed two's-complement interpretation
+                        if dest_bits == 8:
+                            signed8 = masked_val if masked_val <= 0x7F else masked_val - 0x100
+                            bit_pattern_parts.append(str(signed8))
+                        elif dest_bits == 16:
+                            signed16 = masked_val if masked_val <= 0x7FFF else masked_val - 0x10000
+                            bit_pattern_parts.append(str(signed16))
+                        else:
+                            signed32 = masked_val if masked_val <= 0x7FFFFFFF else masked_val - 0x100000000
+                            bit_pattern_parts.append(str(signed32))
+                    
+                    int_str = ' '.join(int_parts)
+                    bit_pattern_str = ', '.join(bit_pattern_parts)
+                    f.write(f"  Row {r}: {int_str} ({bit_pattern_str})\n")
+        
+        print(f"  acc.txt saved.")
+    except IOError as e:
+        print(f"  [Error] Could not write to acc.txt: {e}")
+    # --- KẾT THÚC THAY THẾ ACC.TXT ---
     
     _save_matrix_file(os.path.join(script_dir, "matrix_float.txt"), 
                     "--- Tile Registers (tr0-tr3) (Floating-Point | 32-bit representation)---", "tr", 
@@ -259,23 +321,43 @@ def save_state_to_files(sim):
                 reg_name = f"acc{i}"
                 f.write(f"\n{reg_name}:\n")
                 
-                # Lấy đúng bit-width cho thanh ghi này từ simulator
-                dest_bits = sim.matrix_accelerator.acc_dest_bits[i]
+                # Lấy đúng bit-width cho thanh ghi FLOAT này từ simulator
+                dest_bits = sim.matrix_accelerator.acc_dest_bits_float[i]
                 
                 # Chọn hàm converter dựa trên bit-width
                 if dest_bits == 16:
                     bits_converter_func = float_to_bits16
-                    # (Bạn có thể thêm logic cho 8-bit nếu cần)
-                else: # Mặc định là 32-bit (hoặc 64-bit)
+                    bit_width_name = "FP16/BF16"
+                elif dest_bits == 8:
+                    # Nếu cần hỗ trợ FP8 trong tương lai
+                    bits_converter_func = float_to_bits32  # placeholder
+                    bit_width_name = "FP8"
+                else: # Mặc định là 32-bit
                     bits_converter_func = float_to_bits32
+                    bit_width_name = "FP32"
+                
+                # Ghi tiêu đề với thông tin bit-width
+                f.write(f"  (Destination: {bit_width_name}, {dest_bits}-bit)\n")
                 
                 # Lặp qua 4 hàng của thanh ghi
                 for r in range(ROWNUM):
                     row_data = sim.matrix_accelerator.acc_float[i][r]
                     float_parts = [str(round(val, 4)) for val in row_data]
                     
-                    # Dùng converter đã chọn
-                    bit_pattern_parts = [str(bits_converter_func(val)) for val in row_data]
+                    # Dùng converter đã chọn để lấy bit pattern
+                    bit_pattern_parts = []
+                    for val in row_data:
+                        bits_unsigned = bits_converter_func(val)
+                        
+                        # Hiển thị theo đúng độ rộng bit, nhưng dùng signed two's-complement
+                        if dest_bits == 16:
+                            bits16 = bits_unsigned & 0xFFFF
+                            signed16 = bits16 if bits16 <= 0x7FFF else bits16 - 0x10000
+                            bit_pattern_parts.append(str(signed16))
+                        else:
+                            bits32 = bits_unsigned & 0xFFFFFFFF
+                            signed32 = bits32 if bits32 <= 0x7FFFFFFF else bits32 - 0x100000000
+                            bit_pattern_parts.append(str(signed32))
                     
                     float_str = ' '.join(float_parts)
                     bit_pattern_str = ', '.join(bit_pattern_parts)
