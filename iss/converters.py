@@ -9,18 +9,84 @@ import math
 def bits_to_float32(bits):
     try: return struct.unpack('f', struct.pack('I', bits & 0xFFFFFFFF))[0]
     except: return 0.0
+
 def float_to_bits32(f):
     try: return struct.unpack('I', struct.pack('f', f))[0]
     except OverflowError: return 0x7f800000 if f > 0 else 0xff800000
     except: return 0
+
 def bits_to_float16(bits):
+    """
+    Chuyển đổi 16-bit pattern thành float16 value.
+    Implement IEEE 754 half-precision manually.
+    """
     bits = bits & 0xFFFF
-    try: return struct.unpack('e', struct.pack('H', bits))[0]
-    except: return 0.0
+    
+    # Extract components
+    sign = (bits >> 15) & 0x1
+    exponent = (bits >> 10) & 0x1F
+    mantissa = bits & 0x3FF
+    
+    # Handle special cases
+    if exponent == 0:
+        if mantissa == 0:
+            return -0.0 if sign else 0.0
+        else:
+            # Subnormal number
+            value = (mantissa / 1024.0) * (2 ** -14)
+            return -value if sign else value
+    elif exponent == 0x1F:
+        if mantissa == 0:
+            return float('-inf') if sign else float('inf')
+        else:
+            return float('nan')
+    else:
+        # Normal number
+        value = (1.0 + mantissa / 1024.0) * (2 ** (exponent - 15))
+        return -value if sign else value
+
 def float_to_bits16(f):
-    try: return struct.unpack('H', struct.pack('e', f))[0]
-    except OverflowError: return 0x7c00 if f > 0 else 0xfc00
-    except: return 0
+    """
+    Chuyển đổi float value thành 16-bit FP16 pattern.
+    """
+    if math.isnan(f):
+        return 0x7E00  # NaN
+    
+    if math.isinf(f):
+        return 0xFC00 if f < 0 else 0x7C00  # ±Inf
+    
+    # Get sign
+    sign = 1 if f < 0 else 0
+    f = abs(f)
+    
+    if f == 0.0:
+        return 0x8000 if sign else 0x0000
+    
+    # Convert to float32 bits first
+    bits32 = float_to_bits32(f if not sign else -f)
+    sign = (bits32 >> 31) & 0x1
+    exp32 = ((bits32 >> 23) & 0xFF) - 127  # Unbias
+    mant32 = bits32 & 0x7FFFFF
+    
+    # Adjust to FP16 range
+    exp16 = exp32 + 15  # Rebias for FP16
+    
+    # Handle overflow
+    if exp16 >= 0x1F:
+        return (sign << 15) | 0x7C00  # Infinity
+    
+    # Handle underflow
+    if exp16 <= 0:
+        # Subnormal or zero
+        if exp16 < -10:
+            return sign << 15  # Zero
+        # Subnormal
+        mant16 = (0x400 | (mant32 >> 13)) >> (1 - exp16)
+        return (sign << 15) | mant16
+    
+    # Normal number
+    mant16 = mant32 >> 13  # Truncate to 10 bits
+    return (sign << 15) | (exp16 << 10) | mant16
 
 # --- BFloat16 Converters ---
 def float_to_bfloat16(f):

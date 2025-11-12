@@ -11,67 +11,72 @@ from .reset_state import reset_all_files_to_default  # Import hàm reset
 
 def main():
     """
-    Hàm chính để điều phối toàn bộ quá trình mô phỏng.
+    Main function to orchestrate the entire simulation process.
     """
     
-    # Xác định các đường dẫn file
+    # Set UTF-8 encoding for stdout
+    if sys.stdout.encoding != 'utf-8':
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    
+    # Define file paths
     root_dir = SCRIPT_DIR.parent 
     assembler_dir = root_dir / "assembler"
     iss_dir = SCRIPT_DIR 
     machine_code_file = assembler_dir / "machine_code.txt"
 
-    # --- Xử lý cờ (flags) ---
+    # --- Handle flags ---
     if len(sys.argv) > 1:
-        # Xử lý cờ --setup
+        # Handle --setup flag
         if sys.argv[1] in ['--setup', '-s']:
-            print("--- Chạy Chế độ Cài đặt (Setup Mode) ---")
+            print("--- Running Setup Mode ---")
             run_interactive_setup()
-            print("\nCài đặt hoàn tất. Chạy lại chương trình mà không có cờ '--setup' để mô phỏng.")
-            return # Thoát sau khi setup
+            print("\nSetup complete. Run again without '--setup' flag to simulate.")
+            return # Exit after setup
 
-        # Xử lý cờ --reset
+        # Handle --reset flag
         if sys.argv[1] in ['--reset', '-r']:
-            print("--- Chạy Chế độ Reset ---")
+            print("--- Running Reset Mode ---")
             reset_all_files_to_default()
-            print("Reset hoàn tất. Bắt đầu mô phỏng với trạng thái sạch.")
+            print("Reset complete. Starting simulation with clean state.")
 
-    # --- 1. Khởi tạo Simulator (Tạo các đối tượng trong RAM) ---
-    print("--- 1. Khởi tạo Simulator (Trong RAM) ---")
+    # --- 1. Initialize Simulator (Create objects in RAM) ---
+    print("--- 1. Initializing Simulator (In RAM) ---")
     my_simulator = Simulator()
     
-    # --- 2. Nạp Trạng thái từ File vào RAM ---
-    # (Hàm này sẽ đọc 7 file .txt và điền dữ liệu vào my_simulator)
+    # --- 2. Load State from Files into RAM ---
+    # (This will read 7 .txt files and populate my_simulator)
     load_state_from_files(my_simulator)
 
-    # --- 3. Đọc Mã máy (Input) ---
-    print(f"--- 2. Đọc Mã máy từ '{machine_code_file}' ---")
+    # --- 3. Read Machine Code (Input) ---
+    print(f"--- 2. Reading Machine Code from '{machine_code_file}' ---")
     try:
         with open(machine_code_file, "r") as f:
             instructions = [line.strip() for line in f if line.strip() and not line.startswith('#')]
         if not instructions:
-            print(f"Warning: File mã máy '{machine_code_file}' trống.")
+            print(f"Warning: Machine code file '{machine_code_file}' is empty.")
             return
         my_simulator.load_program(instructions)
-        print(f"Đã nạp {len(instructions)} lệnh.")
+        print(f"Loaded {len(instructions)} instructions.")
     except FileNotFoundError:
-        print(f"LỖI: Không tìm thấy file '{machine_code_file}'.")
-        print("Bạn đã chạy file assembler/assembler.py để tạo ra nó chưa?")
+        print(f"ERROR: File '{machine_code_file}' not found.")
+        print("Have you run assembler/assembler.py to generate it?")
         return
     except Exception as e:
-        print(f"LỖI khi đọc file mã máy: {e}")
+        print(f"ERROR reading machine code file: {e}")
         return
 
-    # --- 4. Chạy Mô phỏng (Hoàn toàn trong RAM) ---
-    print("--- 3. Bắt đầu Vòng lặp Mô phỏng (Chạy trong RAM) ---")
+    # --- 4. Run Simulation (Entirely in RAM) ---
+    print("--- 3. Starting Simulation Loop (Running in RAM) ---")
     my_simulator.run()
     
-    # --- 5. Lưu Trạng thái cuối cùng từ RAM ra File ---
-    print("--- 4. Lưu Trạng thái Cuối cùng từ RAM ra Files ---")
+    # --- 5. Save Final State from RAM to Files ---
+    print("--- 4. Saving Final State from RAM to Files ---")
     save_state_to_files(my_simulator)
     
-    print("\n--- Mô phỏng Hoàn tất ---")
+    print("\n--- Simulation Complete ---")
 
 if __name__ == "__main__":
     main()
 # python -m iss.run_simulator
-# python -m iss.run_simulator -r # Chạy chế độ reset
+# python -m iss.run_simulator -r # Run reset mode

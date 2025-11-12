@@ -1,35 +1,69 @@
 # iss/logic_loadstore.py
 import struct
 from .definitions import ROWNUM, ELEMENTS_PER_ROW_TR
-# Import các hàm tiện ích
+# Import utility functions
 from .converters import bits_to_float16, float_to_bits16, bits_to_float32, float_to_bits32
 
 class LoadStoreLogic:
 
+    def _bytes_to_value(self, byte_data, format_type):
+        """
+        Convert bytes to value based on format_type.
+        format_type: 'i8', 'f16', 'f32'
+        """
+        if format_type == 'i8':
+            # 8-bit signed integer
+            return struct.unpack('<b', byte_data)[0]  # little-endian signed byte
+        elif format_type == 'f16':
+            # 16-bit float - convert via bits
+            bits = struct.unpack('<H', byte_data)[0]  # little-endian unsigned short
+            return bits_to_float16(bits)
+        elif format_type == 'f32':
+            # 32-bit float
+            return struct.unpack('<f', byte_data)[0]  # little-endian float
+        else:
+            raise ValueError(f"Unknown format_type: {format_type}")
+    
+    def _value_to_bytes(self, value, format_type):
+        """
+        Convert value to bytes based on format_type.
+        """
+        if format_type == 'i8':
+            return struct.pack('<b', int(value))
+        elif format_type == 'f16':
+            bits = float_to_bits16(value)
+            return struct.pack('<H', bits)
+        elif format_type == 'f32':
+            return struct.pack('<f', value)
+        else:
+            raise ValueError(f"Unknown format_type: {format_type}")
+
     def _get_eew_and_format(self, d_size_str, is_float=True):
         """
-        Helper: Lấy EEW (bit), số byte, và chuỗi format của 'struct'.
-        CHỈ HỖ TRỢ 8/16/32-bit. 64-bit MÂU THUẪN VỚI ELEN=32.
+        Helper: Get EEW (bits), number of bytes, and format info.
+        ONLY SUPPORTS 8/16/32-bit. 64-bit CONFLICTS WITH ELEN=32.
+        Returns: (eew, num_bytes, format_type)
+        format_type: 'i8', 'f16', 'f32' to determine unpacking method
         """
         if d_size_str == "00": 
-            return 8, 1, 'b'  # 8-bit (signed byte, INT8)
+            return 8, 1, 'i8'  # 8-bit signed integer
         elif d_size_str == "01": 
-            return 16, 2, 'e'  # 16-bit (FP16/BF16)
+            return 16, 2, 'f16'  # 16-bit float (FP16) - requires custom conversion
         elif d_size_str == "10": 
-            return 32, 4, 'f'  # 32-bit (FP32)
+            return 32, 4, 'f32'  # 32-bit float
         elif d_size_str == "11":
-            # ERROR: 64-bit không được hỗ trợ
+            # ERROR: 64-bit not supported
             return None, None, None
         else:
             raise ValueError(f"Invalid d_size: {d_size_str}")
 
     def execute_load_store(self, instruction):
         """
-        Thực thi các lệnh Load/Store.
-        CHỈ HỖ TRỢ 32 LỆNH (func4=0000-0110, d_size=00/01/10).
+        Execute Load/Store instructions.
+        ONLY SUPPORTS 32 INSTRUCTIONS (func4=0000-0110, d_size=00/01/10).
         """
         
-        # --- 1. Giải mã ---
+        # --- 1. Decode ---
         func4      = instruction[0:4]
         ls_bit     = instruction[6]
         rs2_bin    = instruction[7:12]
@@ -37,7 +71,7 @@ class LoadStoreLogic:
         md_ms3_bin = instruction[22:25]
         d_size_str = instruction[20:22]
         
-        # --- 2. Kiểm tra d_size trước (reject 64-bit ngay lập tức) ---
+        # --- 2. Check d_size first (reject 64-bit immediately) ---
         if d_size_str == "11":
             print(f"  -> ERROR: 64-bit load/store is NOT supported")
             print(f"     Reason: ELEN=32, but instruction requests 64-bit elements")
@@ -60,7 +94,7 @@ class LoadStoreLogic:
             print(f"     Use 32-bit (FP32) for training, 8/16-bit for inference")
             return
         
-        # --- 3. Kiểm tra whole register operations (func4=0011) ---
+        # --- 3. Check whole register operations (func4=0011) ---
         if func4 == "0011":
             print(f"  -> ERROR: Whole register load/store (mlme*/msme*) is NOT supported")
             print(f"     func4={func4}, ls={'Load' if ls_bit=='0' else 'Store'}, d_size={d_size_str}")
@@ -74,23 +108,23 @@ class LoadStoreLogic:
             print(f"     Use mlae*/mlbe*/mlce* for matrix load/store instead")
             return
         
-        # --- 4. Lấy các giá trị ---
+        # --- 4. Get values ---
         base_addr  = self.gpr_ref.read(int(rs1_bin, 2))
         row_stride = self.gpr_ref.read(int(rs2_bin, 2))
         reg_idx    = int(md_ms3_bin, 2)
         
-        # 8-bit là int, 16/32-bit là float
+        # 8-bit is int, 16/32-bit is float
         is_float = (d_size_str != "00")
-        eew, num_bytes, fmt = self._get_eew_and_format(d_size_str, is_float)
+        eew, num_bytes, format_type = self._get_eew_and_format(d_size_str, is_float)
 
-        # --- 5. Đọc CSRs để lấy Kích thước Tile ---
+        # --- 5. Read CSRs to get Tile dimensions ---
         M = self.csr_ref.read('mtilem')
         N = self.csr_ref.read('mtilen')
         K = self.csr_ref.read('mtilek')
 
         is_load = (ls_bit == '0')
         
-        # --- 6. Logic điều phối (Dispatch) dựa trên func4 ---
+        # --- 6. Dispatch logic based on func4 ---
         
         # mlae8/16/32 / msae8/16/32 (Matrix A, non-transposed)
         if func4 == "0000":
@@ -98,7 +132,7 @@ class LoadStoreLogic:
             rows, cols = M, K
             target_reg = self.tr_float[reg_idx] if is_float else self.tr_int[reg_idx]
             
-            # Tên lệnh dựa trên d_size
+            # Instruction name based on d_size
             instr_suffix = {
                 "00": "8",
                 "01": "16", 
@@ -112,12 +146,20 @@ class LoadStoreLogic:
                     mem_addr = base_addr + (i * row_stride) + (j * num_bytes)
                     if is_load:
                         byte_data = self.memory.read(mem_addr, num_bytes)
-                        val = struct.unpack(fmt, byte_data)[0]
+                        val = self._bytes_to_value(byte_data, format_type)
                         target_reg[i][j] = val
+                        if i == 0 and j < 2:  # Debug: print first 2 values
+                            if isinstance(byte_data, (bytes, bytearray)):
+                                hex_bytes = byte_data.hex()
+                            else:
+                                hex_bytes = "NOT_BYTES_OR_BYTEARRAY"
+                            print(f"     [Debug] Loaded [{i},{j}] from 0x{mem_addr:X}: bytes={hex_bytes}, val={val}")
                     else: # Store
                         val = target_reg[i][j]
-                        byte_data = struct.pack(fmt, val)
+                        byte_data = self._value_to_bytes(val, format_type)
                         self.memory.write(mem_addr, byte_data)
+                        if i == 0 and j == 0:
+                            print(f"     [Debug] Stored [{i},{j}] to 0x{mem_addr:X}: val={val}, bytes={byte_data.hex() if isinstance(byte_data, (bytes, bytearray)) else 'NOT_BYTES'}")
 
         # mlbe8/16/32 / msbe8/16/32 (Matrix B, non-transposed)
         elif func4 == "0001":
@@ -138,11 +180,11 @@ class LoadStoreLogic:
                     mem_addr = base_addr + (i * row_stride) + (j * num_bytes)
                     if is_load:
                         byte_data = self.memory.read(mem_addr, num_bytes)
-                        val = struct.unpack(fmt, byte_data)[0]
+                        val = self._bytes_to_value(byte_data, format_type)
                         target_reg[i][j] = val
                     else: # Store
                         val = target_reg[i][j]
-                        byte_data = struct.pack(fmt, val)
+                        byte_data = self._value_to_bytes(val, format_type)
                         self.memory.write(mem_addr, byte_data)
 
         # mlce8/16/32 / msce8/16/32 (Matrix C, non-transposed)
@@ -164,17 +206,17 @@ class LoadStoreLogic:
                     mem_addr = base_addr + (i * row_stride) + (j * num_bytes)
                     if is_load:
                         byte_data = self.memory.read(mem_addr, num_bytes)
-                        val = struct.unpack(fmt, byte_data)[0]
+                        val = self._bytes_to_value(byte_data, format_type)
                         target_reg[i][j] = val
                     else: # Store
                         val = target_reg[i][j]
-                        byte_data = struct.pack(fmt, val)
+                        byte_data = self._value_to_bytes(val, format_type)
                         self.memory.write(mem_addr, byte_data)
 
         # mlate8/16/32 / msate8/16/32 (Matrix A, Transposed)
         elif func4 == "0100":
             if reg_idx > 3: raise ValueError("Invalid register for mlate/msate (must be tr0-tr3)")
-            rows, cols = M, K # Kích thước thanh ghi (M x K)
+            rows, cols = M, K # Register dimensions (M x K)
             target_reg = self.tr_float[reg_idx] if is_float else self.tr_int[reg_idx]
             
             instr_suffix = {
@@ -185,17 +227,17 @@ class LoadStoreLogic:
             instr_name = f"{'mla' if is_load else 'msa'}te{instr_suffix}"
             
             print(f"  -> Executing {instr_name} (M={M}, K={K}, Transposed, element_size={eew}-bit)")
-            for i in range(rows): # Lặp qua M
-                for j in range(cols): # Lặp qua K
-                    # Đọc/Ghi theo cột (K x M) trong memory
+            for i in range(rows): # Loop through M
+                for j in range(cols): # Loop through K
+                    # Read/Write column-wise (K x M) in memory
                     mem_addr = base_addr + (j * row_stride) + (i * num_bytes)
                     if is_load:
                         byte_data = self.memory.read(mem_addr, num_bytes)
-                        val = struct.unpack(fmt, byte_data)[0]
+                        val = self._bytes_to_value(byte_data, format_type)
                         target_reg[i][j] = val
                     else: # Store
                         val = target_reg[i][j]
-                        byte_data = struct.pack(fmt, val)
+                        byte_data = self._value_to_bytes(val, format_type)
                         self.memory.write(mem_addr, byte_data)
 
         # mlbte8/16/32 / msbte8/16/32 (Matrix B, Transposed)
@@ -217,11 +259,11 @@ class LoadStoreLogic:
                     mem_addr = base_addr + (j * row_stride) + (i * num_bytes)
                     if is_load:
                         byte_data = self.memory.read(mem_addr, num_bytes)
-                        val = struct.unpack(fmt, byte_data)[0]
+                        val = self._bytes_to_value(byte_data, format_type)
                         target_reg[i][j] = val
                     else: # Store
                         val = target_reg[i][j]
-                        byte_data = struct.pack(fmt, val)
+                        byte_data = self._value_to_bytes(val, format_type)
                         self.memory.write(mem_addr, byte_data)
 
         # mlcte8/16/32 / mscte8/16/32 (Matrix C, Transposed)
@@ -243,11 +285,11 @@ class LoadStoreLogic:
                     mem_addr = base_addr + (j * row_stride) + (i * num_bytes)
                     if is_load:
                         byte_data = self.memory.read(mem_addr, num_bytes)
-                        val = struct.unpack(fmt, byte_data)[0]
+                        val = self._bytes_to_value(byte_data, format_type)
                         target_reg[i][j] = val
                     else: # Store
                         val = target_reg[i][j]
-                        byte_data = struct.pack(fmt, val)
+                        byte_data = self._value_to_bytes(val, format_type)
                         self.memory.write(mem_addr, byte_data)
         
         else:

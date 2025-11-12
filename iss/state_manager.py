@@ -3,12 +3,12 @@ import os
 import struct
 import math
 
-# THÊM: Import các bảng tra cứu từ definitions.py
+# ADD: Import lookup tables from definitions.py
 from .definitions import GPR_MAP, MATRIX_REG_MAP, ROWNUM, ELEMENTS_PER_ROW_TR
 
 # =============================================================================
-# CÁC HÀM TIỆN ÍCH CHUYỂN ĐỔI KIỂU DỮ LIỆU
-# (Copy từ file matmul.py cũ của bạn)
+# DATA TYPE CONVERSION UTILITY FUNCTIONS
+# (Copied from old matmul.py file)
 # =============================================================================
 # --- Float <-> Bits ---
 def bits_to_float32(bits):
@@ -61,11 +61,11 @@ def float_to_bits8_e5m2(f):
     return (sign << 7) | (exponent8 << 2) | mantissa8
 
 # =============================================================================
-# CÁC HÀM LOAD (ĐỌC TỪ FILE VÀO RAM SIMULATOR)
+# LOAD FUNCTIONS (READ FROM FILES INTO SIMULATOR RAM)
 # =============================================================================
 
 def _load_matrix_file(filepath, reg_array, is_float_file):
-    """Hàm phụ trợ để đọc file matrix.txt/acc.txt vào mảng RAM."""
+    """Helper function to read matrix.txt/acc.txt files into RAM array."""
     try:
         with open(filepath, "r") as f:
             lines = f.readlines()
@@ -73,26 +73,26 @@ def _load_matrix_file(filepath, reg_array, is_float_file):
             current_row_index = 0
             
             for line in lines:
-                # Tìm dòng tên thanh ghi, ví dụ "tr0:" hoặc "acc1:"
+                # Find register name line, e.g. "tr0:" or "acc1:"
                 match = re.search(r"^(tr|acc)(\d):", line.strip())
                 if match:
                     current_reg_index = int(match.group(2))
                     current_row_index = 0
-                    continue # Chuyển sang dòng tiếp theo
+                    continue # Move to next line
                 
-                # Nếu đang ở trong một block thanh ghi và gặp dòng "Row"
+                # If within a register block and encounter "Row" line
                 if current_reg_index != -1 and line.strip().startswith("Row"):
                     if current_row_index < ROWNUM:
                         data_part = line.split(':')[1].strip()
                         values_str = ""
                         if is_float_file:
-                            # Đọc phần float trước dấu ngoặc
+                            # Read float part before parentheses
                             values_str = data_part.split('(')[0].strip()
                         else:
-                            # Đọc trực tiếp số nguyên
+                            # Read integers directly
                             values_str = data_part
                         
-                        # Chuyển đổi các giá trị đọc được
+                        # Convert read values
                         if values_str:
                             try:
                                 if is_float_file:
@@ -100,28 +100,28 @@ def _load_matrix_file(filepath, reg_array, is_float_file):
                                 else:
                                     values = [int(v) for v in values_str.split()]
                                 
-                                # Ghi vào mảng RAM (đối tượng Simulator)
+                                # Write to RAM array (Simulator object)
                                 for c in range(min(ELEMENTS_PER_ROW_TR, len(values))):
                                     reg_array[current_reg_index][current_row_index][c] = values[c]
                             except ValueError as e:
-                                print(f"  [Warning] Bỏ qua dòng không hợp lệ trong {filepath}: {line.strip()}. Lỗi: {e}")
+                                print(f"  [Warning] Skipping invalid line in {filepath}: {line.strip()}. Error: {e}")
                         
                         current_row_index += 1
                         if current_row_index >= ROWNUM:
-                            current_reg_index = -1 # Kết thúc block thanh ghi này
+                            current_reg_index = -1 # End this register block
                     
     except FileNotFoundError:
-        print(f"  [Warning] File {filepath} không tìm thấy. Sử dụng giá trị 0 mặc định.")
+        print(f"  [Warning] File {filepath} not found. Using default value 0.")
     except Exception as e:
-        print(f"  [Error] Không thể đọc {filepath}. {e}")
+        print(f"  [Error] Cannot read {filepath}. {e}")
 
 
 def load_state_from_files(sim):
-    """Nạp trạng thái từ 7 file .txt vào đối tượng Simulator (RAM)."""
+    """Load state from 7 .txt files into Simulator object (RAM)."""
     print("--- Loading state from files into RAM ---")
     script_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # 1. Nạp GPR
+    # 1. Load GPR
     try:
         with open(os.path.join(script_dir, "gpr.txt"), "r") as f:
             for line in f:
@@ -129,11 +129,11 @@ def load_state_from_files(sim):
                 if match:
                     reg_num = int(match.group(1))
                     reg_val = int(match.group(2), 16)
-                    sim.gpr.write(reg_num, reg_val) # Ghi vào GPR RAM
+                    sim.gpr.write(reg_num, reg_val) # Write to GPR RAM
         print("  GPRs loaded.")
     except Exception as e: print(f"  [Warning] Could not load gpr.txt. {e}")
 
-    # 2. Nạp CSRs
+    # 2. Load CSRs
     try:
         for filename in ["config.txt", "status.txt"]:
              with open(os.path.join(script_dir, filename), "r") as f:
@@ -141,46 +141,73 @@ def load_state_from_files(sim):
                     match = re.search(r"(\w+)\s*\(.+\):\s*(0x[0-9a-fA-F]+)", line)
                     if match:
                         name, val = match.group(1).strip(), int(match.group(2), 16)
-                        sim.csr.write(name, val) # Ghi vào CSR RAM
+                        sim.csr.write(name, val) # Write to CSR RAM
         print("  CSRs loaded.")
     except Exception as e: print(f"  [Warning] Could not load CSRs. {e}")
     
-    # 3. Nạp 4 file Ma trận
+    # 3. Load 4 matrix files
     _load_matrix_file(os.path.join(script_dir, "matrix.txt"), sim.matrix_accelerator.tr_int, is_float_file=False)
     _load_matrix_file(os.path.join(script_dir, "acc.txt"), sim.matrix_accelerator.acc_int, is_float_file=False)
     _load_matrix_file(os.path.join(script_dir, "matrix_float.txt"), sim.matrix_accelerator.tr_float, is_float_file=True)
     _load_matrix_file(os.path.join(script_dir, "acc_float.txt"), sim.matrix_accelerator.acc_float, is_float_file=True)
     print("  Matrix registers loaded.")
+    
+    # 4. Load Memory from memory.txt
+    try:
+        loaded_count = 0
+        print("  [Debug] Starting memory load...")
+        with open(os.path.join(script_dir, "memory.txt"), "r", encoding='utf-8') as f:
+            for line_num, line in enumerate(f, 1):
+                # Parse lines like: "0x100: 00 00 80 3F 00 00 00 40"
+                match = re.search(r"0x([0-9a-fA-F]+):\s*([\s0-9a-fA-F]+)", line)
+                if match:
+                    addr = int(match.group(1), 16)
+                    hex_bytes = match.group(2).strip().split()
+                    # Convert to bytes and write in one operation
+                    byte_data = bytes([int(b, 16) for b in hex_bytes])
+                    sim.memory.write(addr, byte_data)
+                    loaded_count += 1
+                    if addr == 0x100:  # Debug: print first data line
+                        print(f"  [Debug] Loaded 0x{addr:X}: {byte_data.hex()}")
+        print(f"  Memory loaded from memory.txt ({loaded_count} lines).")
+    except FileNotFoundError:
+        print("  [Warning] memory.txt not found, memory initialized to zeros")
+    except Exception as e:
+        print(f"  [Warning] Could not load memory.txt: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+    
     print("--- State loading complete ---")
 
 # =============================================================================
-# CÁC HÀM SAVE (GHI TỪ RAM SIMULATOR RA FILE)
+# =============================================================================
+# SAVE FUNCTIONS (WRITE FROM SIMULATOR RAM TO FILES)
 # =============================================================================
 
 def _save_matrix_file(filepath, header, reg_prefix, reg_array, is_float_file, bits_converter_func=float_to_bits32):
-    """Hàm phụ trợ chung để ghi file matrix/acc."""
+    """Common helper function to write matrix/acc files."""
     try:
         with open(filepath, "w") as f:
             f.write(f"{header}\n")
-            for i in range(len(reg_array)): # Lặp qua 4 thanh ghi
+            for i in range(len(reg_array)): # Loop through 4 registers
                 reg_name = f"{reg_prefix}{i}"
                 f.write(f"\n{reg_name}:\n")
-                for r in range(ROWNUM): # Lặp qua 4 hàng
+                for r in range(ROWNUM): # Loop through 4 rows
                     row_data = reg_array[i][r]
                     
                     if is_float_file:
-                        # Ghi định dạng: float (unsigned_integer_32bit)
+                        # Write format: float (unsigned_integer_32bit)
                         float_parts = [str(round(val, 4)) for val in row_data]
                         
-                        # SỬA DÒNG NÀY:
-                        # Thay vì gọi float_to_bits32, gọi hàm được truyền vào
+                        # FIX THIS LINE:
+                        # Instead of calling float_to_bits32, call the passed function
                         bit_pattern_parts = [str(bits_converter_func(val)) for val in row_data]
                         
                         float_str = ' '.join(float_parts)
                         bit_pattern_str = ', '.join(bit_pattern_parts)
                         f.write(f"  Row {r}: {float_str} ({bit_pattern_str})\n")
                     else:
-                        # (Phần code cho 'else' giữ nguyên)
+                        # (Keep 'else' code section as is)
                         int_parts = [str(int(val)) for val in row_data]
                         int_str = ' '.join(int_parts)
                         f.write(f"  Row {r}: {int_str}\n")
@@ -190,11 +217,11 @@ def _save_matrix_file(filepath, header, reg_prefix, reg_array, is_float_file, bi
 
 
 def save_state_to_files(sim):
-    """Lưu trạng thái từ các đối tượng Simulator (RAM) ra 7 file .txt."""
+    """Save state from Simulator objects (RAM) to 7 .txt files."""
     print("--- Saving final state from RAM to files ---")
     script_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # 1. Ghi GPR (PHẦN NÀY BỊ THIẾU)
+    # 1. Write GPR (THIS SECTION WAS MISSING)
     try:
         # Tạo map ngược từ index -> tên ABI (bỏ 'x' và 'fp')
         idx_to_abi = {v: k for k, v in GPR_MAP.items() if not k.startswith('x') and k != 'fp'}
@@ -366,6 +393,27 @@ def save_state_to_files(sim):
         print(f"  acc_float.txt saved.")
     except IOError as e:
         print(f"  [Error] Could not write to acc_float.txt: {e}")
-    # --- KẾT THÚC THAY THẾ ---
+    # --- END OF ACC_FLOAT.TXT REPLACEMENT ---
+    
+    # 4. Save Memory to memory.txt
+    try:
+        with open(os.path.join(script_dir, "memory.txt"), "w", encoding='utf-8') as f:
+            f.write("# Format: <Hex Address>: <Hex bytes separated by spaces>\n")
+            f.write("# Example: 0x3E8: 0A 14 1E\n")
+            f.write("# RAM 1KB (from 0x000 to 0x3FF)\n")
+            
+            # Write memory in 16-byte lines (0x00 to 0x3F0)
+            for addr in range(0, 0x400, 0x10):
+                # Read 16 bytes from memory
+                bytes_data = sim.memory.read(addr, 16)
+                # Convert to hex string with spaces
+                hex_str = ' '.join(f'{b:02X}' for b in bytes_data)
+                f.write(f"0x{addr:03X}: {hex_str}\n")
+        
+        print(f"  memory.txt saved.")
+    except IOError as e:
+        print(f"  [Error] Could not write to memory.txt: {e}")
+    except Exception as e:
+        print(f"  [Error] Unknown error saving memory.txt: {type(e).__name__}: {e}")
     
     print("--- State saving complete ---")
