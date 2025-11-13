@@ -54,6 +54,12 @@ class MatrixAccelerator(ConfigLogic, MatmulLogic, LoadStoreLogic, ElementwiseLog
         self.csr_ref = csr_file_ref 
         self.gpr_ref = gpr_file_ref
         self.memory = memory_ref
+        
+        # Lưu các hằng số kích thước (cần cho logic_misc.py)
+        self.rownum = ROWNUM
+        self.elements_per_row_tr = ELEMENTS_PER_ROW_TR
+        self.elements_per_row_acc = ELEMENTS_PER_ROW_TR  # ACC cũng có cùng kích thước
+        
         # Khởi tạo các thanh ghi tile/acc trong RAM
         # Cấu trúc: 4 thanh ghi [4 hàng [4 cột]]
         self.tr_int = [[[0]*ELEMENTS_PER_ROW_TR for _ in range(ROWNUM)] for _ in range(4)]
