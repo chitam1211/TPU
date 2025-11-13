@@ -84,13 +84,9 @@ def _load_matrix_file(filepath, reg_array, is_float_file):
                 if current_reg_index != -1 and line.strip().startswith("Row"):
                     if current_row_index < ROWNUM:
                         data_part = line.split(':')[1].strip()
-                        values_str = ""
-                        if is_float_file:
-                            # Read float part before parentheses
-                            values_str = data_part.split('(')[0].strip()
-                        else:
-                            # Read integers directly
-                            values_str = data_part
+                        # Always split at '(' to get only the numeric values part
+                        # Format: "Row 0: 1 2 3 4 (1, 2, 3, 4)" or "Row 0: 1.0 2.0 3.0 4.0 (1.0, 2.0, 3.0, 4.0)"
+                        values_str = data_part.split('(')[0].strip()
                         
                         # Convert read values
                         if values_str:
