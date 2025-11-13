@@ -1,0 +1,25 @@
+{
+    // Python settings
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.diagnosticMode": "workspace",
+    "python.analysis.autoImportCompletions": true,
+    
+    // Disable strict type checking for mixin patterns
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportGeneralTypeIssues": "none",
+        "reportOptionalMemberAccess": "none",
+        "reportAttributeAccessIssue": "none"
+    },
+    
+    // Python path
+    "python.defaultInterpreterPath": "python",
+    
+    // Editor settings
+    "editor.formatOnSave": false,
+    "files.encoding": "utf-8",
+    
+    // Terminal encoding
+    "terminal.integrated.env.windows": {
+        "PYTHONIOENCODING": "utf-8"
+    }
+}
