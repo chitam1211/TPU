@@ -122,21 +122,6 @@ rmdir /s assembler\__pycache__
 
 ---
 
-## 📞 Liên hệ
-
-Nếu vẫn gặp lỗi sau khi làm hết checklist:
-
-1. Chụp màn hình output của `python validate_setup.py`
-2. Chụp màn hình lỗi
-3. Ghi rõ:
-   - Hệ điều hành (Windows/Linux/Mac)
-   - Python version (`python --version`)
-   - Git branch (`git branch`)
-
----
-
-## ✨ Hoàn thành!
-
 Khi tất cả checks PASS, bạn có thể:
 
 - ✅ Chạy simulator: `python -m iss.run_simulator`
