@@ -34,6 +34,17 @@ Script này sẽ kiểm tra:
 
 Nếu tất cả checks PASS → Máy bạn sẵn sàng!
 
+### 2b. Kiểm tra code có khớp với repo không (Optional)
+```bash
+python check_sync.py
+```
+
+Script này sẽ kiểm tra:
+- ✅ Git branch hiện tại
+- ✅ So sánh với remote repo
+- ✅ Uncommitted changes
+- ✅ Code differences
+
 ### 3. Cài đặt dependencies (optional)
 ```bash
 pip install -r requirements.txt
