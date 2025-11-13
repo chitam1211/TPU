@@ -19,7 +19,22 @@ git clone <repository-url>
 cd TPU
 ```
 
-### 2. Cài đặt dependencies (optional)
+### 2. Kiểm tra setup (Recommended - Chạy trên máy mới)
+```bash
+python validate_setup.py
+```
+
+Script này sẽ kiểm tra:
+- ✅ Python version (>= 3.8)
+- ✅ Project structure
+- ✅ Module imports
+- ✅ Mixin classes
+- ✅ Required attributes
+- ✅ UTF-8 encoding support
+
+Nếu tất cả checks PASS → Máy bạn sẵn sàng!
+
+### 3. Cài đặt dependencies (optional)
 ```bash
 pip install -r requirements.txt
 ```
