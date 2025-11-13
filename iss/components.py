@@ -47,7 +47,7 @@ class CSRFile:
             else:
                 print(f"  [Warning] Cố gắng ghi vào CSR không xác định: {name}")
 
-class MatrixAccelerator(ConfigLogic, MatmulLogic, LoadStoreLogic):
+class MatrixAccelerator(ConfigLogic, MatmulLogic, LoadStoreLogic, ElementwiseLogic, MiscLogic):
     """Đại diện cho bộ tăng tốc ma trận."""
     def __init__(self, csr_file_ref, gpr_file_ref, memory_ref):
         # Lưu một tham chiếu đến CSRs, GPRs và Memory
