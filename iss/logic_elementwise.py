@@ -1,6 +1,11 @@
 # Import các hàm tiện ích
 from .converters import *
 from .definitions import ROWNUM, ELEMENTS_PER_ROW_TR
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import List
+    from .components import CSRFile
 
 # Hằng số (giả định)
 INT32_MAX = 0x7FFFFFFF
@@ -16,6 +21,18 @@ cols_16bit = cols_32bit * 2 # = 8
 cols_8bit = cols_32bit * 4 # = 16
 
 class ElementwiseLogic:
+    """
+    Mixin class for element-wise operations.
+    
+    Expected attributes (provided by MatrixAccelerator):
+        - tr_int: List[List[List[int]]] - Tile registers (integer)
+        - tr_float: List[List[List[float]]] - Tile registers (float)
+        - acc_int: List[List[List[int]]] - Accumulator registers (integer)
+        - acc_float: List[List[List[float]]] - Accumulator registers (float)
+        - csr_ref: CSRFile - Reference to CSR registers
+        - rownum: int - Number of rows in matrix
+        - elements_per_row_tr: int - Elements per row in TR
+    """
 
     def _execute_ew_integer(self, instruction, func4, ctrl, md_idx, ms1_idx, ms2_idx):
         """Thực thi Nhóm 5.5.1: Lệnh số học số nguyên (uop=01)."""

@@ -1,5 +1,6 @@
 # iss/logic_misc.py
 import struct
+from typing import TYPE_CHECKING
 
 # Import các hàm tiện ích (nếu bạn đã tách chúng ra 'converters.py')
 from .converters import (
@@ -8,7 +9,26 @@ from .converters import (
     bits_to_signed_int8, bits_to_signed_int32
 )
 
+if TYPE_CHECKING:
+    # Type hints for Pylance - these attributes come from MatrixAccelerator
+    from typing import Any, List
+
 class MiscLogic:
+    """
+    Mixin class for miscellaneous matrix operations.
+    
+    Expected attributes (provided by MatrixAccelerator):
+        - tr_int: List[List[List[int]]] - Tile registers (integer)
+        - tr_float: List[List[List[float]]] - Tile registers (float)
+        - acc_int: List[List[List[int]]] - Accumulator registers (integer)
+        - acc_float: List[List[List[float]]] - Accumulator registers (float)
+        - gpr_ref: RegisterFile - Reference to GPR registers
+        - csr_ref: CSRFile - Reference to CSR registers
+        - memory: MainMemory - Reference to main memory
+        - rownum: int - Number of rows in matrix
+        - elements_per_row_tr: int - Elements per row in TR
+        - elements_per_row_acc: int - Elements per row in ACC
+    """
 
     # --- HÀM HELPER ĐỂ XỬ LÝ THANH GHI (TR/ACC) ---
 

@@ -1,5 +1,18 @@
 # iss/logic_config.py
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .components import CSRFile, RegisterFile
+
 class ConfigLogic:
+    """
+    Mixin class for configuration instructions.
+    
+    Expected attributes (provided by MatrixAccelerator):
+        - csr_ref: CSRFile - Reference to CSR registers
+        - gpr_ref: RegisterFile - Reference to GPR registers
+    """
+    
     def execute_config(self, instruction):
         """Thực thi các lệnh cấu hình (đã bao gồm mrelease)."""
         func4 = instruction[0:4]

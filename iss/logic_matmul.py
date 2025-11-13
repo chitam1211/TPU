@@ -1,8 +1,27 @@
 # iss/logic_matmul.py
 # Import các hàm tiện ích từ file converters.py mới
 from .converters import *
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import List
+    from .components import CSRFile
 
 class MatmulLogic:
+    """
+    Mixin class for matrix multiply-accumulate operations.
+    
+    Expected attributes (provided by MatrixAccelerator):
+        - tr_int: List[List[List[int]]] - Tile registers (integer)
+        - tr_float: List[List[List[float]]] - Tile registers (float)
+        - acc_int: List[List[List[int]]] - Accumulator registers (integer)
+        - acc_float: List[List[List[float]]] - Accumulator registers (float)
+        - acc_dest_bits_int: List[int] - Destination bit-width for int accumulators
+        - acc_dest_bits_float: List[int] - Destination bit-width for float accumulators
+        - csr_ref: CSRFile - Reference to CSR registers
+        - rownum: int - Number of rows in matrix
+    """
+    
     def execute_matmul(self, instruction):
         """Thực thi các lệnh nhân ma trận (ĐÃ SỬA LỖI GIẢI MÃ)."""
         

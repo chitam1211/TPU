@@ -1,10 +1,28 @@
 # iss/logic_loadstore.py
 import struct
+from typing import TYPE_CHECKING
 from .definitions import ROWNUM, ELEMENTS_PER_ROW_TR
 # Import utility functions
 from .converters import bits_to_float16, float_to_bits16, bits_to_float32, float_to_bits32
 
+if TYPE_CHECKING:
+    from typing import List
+    from .components import RegisterFile, MainMemory
+
 class LoadStoreLogic:
+    """
+    Mixin class for load/store operations.
+    
+    Expected attributes (provided by MatrixAccelerator):
+        - tr_int: List[List[List[int]]] - Tile registers (integer)
+        - tr_float: List[List[List[float]]] - Tile registers (float)
+        - acc_int: List[List[List[int]]] - Accumulator registers (integer)
+        - acc_float: List[List[List[float]]] - Accumulator registers (float)
+        - gpr_ref: RegisterFile - Reference to GPR registers
+        - memory: MainMemory - Reference to main memory
+        - rownum: int - Number of rows in matrix
+        - elements_per_row_tr: int - Elements per row in TR
+    """
 
     def _bytes_to_value(self, byte_data, format_type):
         """
@@ -44,6 +62,9 @@ class LoadStoreLogic:
         ONLY SUPPORTS 8/16/32-bit. 64-bit CONFLICTS WITH ELEN=32.
         Returns: (eew, num_bytes, format_type)
         format_type: 'i8', 'f16', 'f32' to determine unpacking method
+        
+        Returns:
+            tuple: (int | None, int | None, str | None)
         """
         if d_size_str == "00": 
             return 8, 1, 'i8'  # 8-bit signed integer
@@ -116,6 +137,11 @@ class LoadStoreLogic:
         # 8-bit is int, 16/32-bit is float
         is_float = (d_size_str != "00")
         eew, num_bytes, format_type = self._get_eew_and_format(d_size_str, is_float)
+        
+        # Check if valid (should not happen due to earlier checks, but for type safety)
+        if num_bytes is None or format_type is None:
+            print(f"  -> ERROR: Invalid data size configuration")
+            return
 
         # --- 5. Read CSRs to get Tile dimensions ---
         M = self.csr_ref.read('mtilem')
