@@ -1,0 +1,23 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "▶️ Chạy Simulator (Bình thường)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "iss.run_simulator",
+            "console": "integratedTerminal",
+            "args": []
+        },
+        {
+            "name": "🔄 Chạy Simulator (với --reset)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "iss.run_simulator",
+            "console": "integratedTerminal",
+            "args": [
+                "--reset"
+            ]
+        }
+    ]
+}

@@ -1,0 +1,15 @@
+# TPU Simulator Requirements
+# Python 3.8+
+
+# Optional: For float16 support in test scripts
+numpy>=1.20.0
+
+# Standard library modules (built-in, no installation needed):
+# - struct
+# - random
+# - subprocess
+# - pathlib
+# - os
+# - sys
+# - re
+# - math

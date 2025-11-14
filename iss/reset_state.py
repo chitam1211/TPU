@@ -66,7 +66,7 @@ MATRIX_CONTROL_REGISTERS["xmisa"]["value"] = build_xmisa_value(XMISA_FIELDS, XLE
 # =============================================================================
 # HÀM CHÍNH ĐỂ GHI CÁC FILE TRẠNG THÁI MẶC ĐỊNH
 # =============================================================================
-def main():
+def reset_all_files_to_default():
     print("\n--- Resetting state files to default values (separated Int/Float) ---")
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -134,8 +134,32 @@ def main():
     write_float_matrix_reset_file(os.path.join(script_dir, "matrix_float.txt"), "--- Tile Registers (tr0-tr3) ---", "tr")
     write_float_matrix_reset_file(os.path.join(script_dir, "acc_float.txt"), "--- Accumulator Registers (acc0-acc3) ---", "acc")
 
+    try:
+        with open(os.path.join(script_dir, "memory.txt"), "w", encoding="utf-8") as f:
+            f.write("# Định dạng: <Địa chỉ Hex>: <Các byte Hex cách nhau bằng dấu cách>\n")
+            f.write("# Ví dụ: 0x3E8: 0A 14 1E\n")
+            
+            # --- BẮT ĐẦU CẢI TIẾN ---
+            f.write("# RAM 1KB (từ 0x000 đến 0x3FF)\n")
+            
+            bytes_per_line = 16
+            total_bytes = 1024 # Tạo sẵn 1KB RAM rỗng
+            
+            # Tạo một chuỗi "00 00 00 ..." dài 16 byte
+            zero_byte_str = " ".join(["00"] * bytes_per_line) 
+            
+            # Ghi 64 dòng (64 * 16 = 1024 bytes)
+            for i in range(0, total_bytes, bytes_per_line):
+                address = i
+                f.write(f"0x{address:03X}: {zero_byte_str}\n")
+            # --- KẾT THÚC CẢI TIẾN ---
+
+        print(f"Successfully created/reset memory.txt (with 1KB of zeroed RAM)")
+    except IOError as e: print(f"Error writing to memory.txt: {e}")
+    # --- KẾT THÚC SỬA LẠI ---
+
     print("\n--- State reset complete ---\n")
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()
 
