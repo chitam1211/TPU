@@ -9,13 +9,13 @@ mzero2r:  func=0000, uop=11, ctrl=001, func3=000, d_size=00
 mzero4r:  func=0000, uop=11, ctrl=011, func3=000, d_size=00
 mzero8r:  func=0000, uop=11, ctrl=111, func3=000, d_size=00
 ```
-**Encoding**: Rõ ràng, phân biệt bằng ctrl field ✅
+**Encoding**: Rõ ràng, phân biệt bằng ctrl field [OK]
 
 ### Nhóm 2: Move Operations (func=0001, uop=11)
 ```
 mmov.mm:  func=0001, uop=11, ctrl=000, ms2=000, s_size=00, func3=000, d_size=00
 ```
-**Encoding**: Rõ ràng ✅
+**Encoding**: Rõ ràng [OK]
 
 ### Nhóm 3: GPR ↔ Matrix Move (func=0011/0010, uop=11)
 ```
@@ -38,7 +38,7 @@ mmovw.x.m: func=0010, uop=11, ctrl25=0, ctrl24_23=10, func3=000
 mmovd.x.m: func=0010, uop=11, ctrl25=0, ctrl24_23=11, func3=000
 ```
 
-⚠️ **VẤN ĐỀ PHÁT HIỆN:**
+[WARNING] **VẤN ĐỀ PHÁT HIỆN:**
 ```
 mmovb.x.m: ctrl24_23=11
 mmovd.x.m: ctrl24_23=11
@@ -49,7 +49,69 @@ mmovd.x.m: ctrl24_23=11
 ```
 mbce8:        func=0101, uop=10, func3=000  (variant: md_ms1_imm3)
 mrbc.mv.i:    func=0110, uop=10, func3=001  (variant: md_ms1_imm3)
-mcbce8.mv.i:  func=0111, uop=10, func3=010  (variant: md_ms1_imm3)
+mcbce8.mv.i:  func=0111, uop=10, func3=001, d_size=10  (variant: md_ms1_imm3)
+```
+**Encoding**: Rõ ràng, phân biệt bằng func và func3 [OK]
+
+### Nhóm 5: Slide Operations (func=1000/1001, uop=10)
+```
+# Row slide
+mrslidedown:  func=1000, uop=10, ctrl=000, func3=000, d_size=xx  (variant: md_ms1_imm5)
+mrslideup:    func=1001, uop=10, ctrl=000, func3=000, d_size=xx  (variant: md_ms1_imm5)
+
+# Column slide
+mcslidedown.b: func=1000, uop=10, ctrl=001, func3=000, d_size=00
+mcslideup.b:   func=1001, uop=10, ctrl=001, func3=000, d_size=00
+mcslidedown.h: func=1000, uop=10, ctrl=001, func3=000, d_size=01
+mcslideup.h:   func=1001, uop=10, ctrl=001, func3=000, d_size=01
+mcslidedown.w: func=1000, uop=10, ctrl=001, func3=000, d_size=10
+mcslideup.w:   func=1001, uop=10, ctrl=001, func3=000, d_size=10
+mcslidedown.d: func=1000, uop=10, ctrl=001, func3=000, d_size=11
+mcslideup.d:   func=1001, uop=10, ctrl=001, func3=000, d_size=11
+```
+**Encoding**: Rõ ràng, phân biệt bằng func và s_size/d_size [OK]
+
+### Nhóm 6: Advanced Broadcast (func=1010/1011, uop=10)
+```
+mrbca.mv.i:   func=1010, uop=10, func3=001  (variant: md_ms1_imm3)
+mcbca.mv.i:   func=1011, uop=10, func3=001  (variant: md_ms1_imm3)
+mcbcaw.mv.i:  func=1011, uop=10, func3=001, d_size=10  (variant: md_ms1_imm3)
+```
+**Encoding**: Rõ ràng [OK]
+
+### Nhóm 7: Other Operations (func=1100, uop=10)
+```
+mtrans.m.m:   func=1100, uop=10, ctrl=000, func3=000
+```
+**Encoding**: Rõ ràng, phân biệt bằng ctrl24_23 [OK]
+
+---
+
+## [OK] CÁC LỆNH CẦN THIẾT CHO ML
+
+### CORE OPERATIONS (7 lệnh)
+
+1. [OK] **mzero** - Zero initialize matrix (cần thiết)
+2. [OK] **mmov.mm** - Copy matrix register (cần thiết)
+3. [OK] **mmovw.m.x** - Load scalar to matrix (hữu ích cho bias, constants)
+4. [OK] **mdupw.m.x** - Broadcast scalar to matrix (quan trọng cho broadcasting)
+
+### UTILITY OPERATIONS (3 lệnh)
+
+5. [OK] **mmovw.x.m** - Extract scalar from matrix (debugging, reduction)
+6. [OK] **mrslidedown/up** - Row permutation (data shuffling)
+7. [OK] **mcslidedown/up.w** - Column permutation (data shuffling)
+
+### KHÔNG CẦN THIẾT (15+ lệnh)
+
+- [X] **mzero2r, mzero4r, mzero8r** - Optimization variants, có mzero là đủ
+- [X] **mmovb/h/d variants** - 8/16/64-bit operations ít dùng trong ML
+- [X] **mdupb/h/d** - 8/16/64-bit broadcast, có mdupw (32-bit) là đủ
+- [X] **mbce8, mrbc.mv.i, mcbce8.mv.i** - Broadcast operations phức tạp, không rõ spec
+- [X] **mcslidedown/up.b/h/d** - 8/16/64-bit slide, có .w (32-bit) là đủ
+- [X] **mrbca.mv.i, mcbca*.mv.i** - Advanced broadcast, ít dùng
+```
+**Encoding**: Rõ ràng, phân biệt bằng ctrl24_23 [OK]
 ```
 **Encoding**: Rõ ràng, phân biệt bằng func và func3 ✅
 
@@ -89,9 +151,9 @@ mpack:    func=0100, uop=11, ctrl25=0, ctrl24_23=00, s_size=00, func3=000, d_siz
 mpackhl:  func=0100, uop=11, ctrl25=0, ctrl24_23=10, s_size=00, func3=000, d_size=00
 mpackhh:  func=0100, uop=11, ctrl25=0, ctrl24_23=11, s_size=00, func3=000, d_size=00
 ```
-**Encoding**: Rõ ràng, phân biệt bằng ctrl24_23 ✅
+**Encoding**: Rõ ràng, phân biệt bằng ctrl24_23 [OK]
 
-## 🔴 XUNG ĐỘT ENCODING PHÁT HIỆN
+## [ERROR] XUNG ĐỘT ENCODING PHÁT HIỆN
 
 ### Xung đột 1: mmovb.x.m vs mmovd.x.m
 ```

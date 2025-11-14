@@ -25,12 +25,12 @@ python validate_setup.py
 ```
 
 Script này sẽ kiểm tra:
-- ✅ Python version (>= 3.8)
-- ✅ Project structure
-- ✅ Module imports
-- ✅ Mixin classes
-- ✅ Required attributes
-- ✅ UTF-8 encoding support
+- Python version (>= 3.8)
+- Project structure
+- Module imports
+- Mixin classes
+- Required attributes
+- UTF-8 encoding support
 
 Nếu tất cả checks PASS → Máy bạn sẵn sàng!
 
@@ -40,10 +40,10 @@ python check_sync.py
 ```
 
 Script này sẽ kiểm tra:
-- ✅ Git branch hiện tại
-- ✅ So sánh với remote repo
-- ✅ Uncommitted changes
-- ✅ Code differences
+- Git branch hiện tại
+- So sánh với remote repo
+- Uncommitted changes
+- Code differences
 
 ### 3. Cài đặt dependencies (optional)
 ```bash
@@ -135,19 +135,19 @@ Nếu gặp lỗi `UnicodeEncodeError`:
 ## Tính năng
 
 ### Simulator
-- ✅ Matrix multiply-accumulate (signed, unsigned, mixed)
-- ✅ Float operations (FP16, FP32, BF16)
-- ✅ Load/Store (alignment, block, column-wise)
-- ✅ Elementwise operations
-- ✅ Configuration via CSR
-- ✅ 1KB RAM simulation
-- ✅ State persistence to text files
+- Matrix multiply-accumulate (signed, unsigned, mixed)
+- Float operations (FP16, FP32, BF16)
+- Load/Store (alignment, block, column-wise)
+- Elementwise operations
+- Configuration via CSR
+- 1KB RAM simulation
+- State persistence to text files
 
 ### Test Script
-- ✅ Random data generation
-- ✅ Sequential testing (one test at a time)
-- ✅ Automatic verification
-- ✅ Detailed result display
+- Random data generation
+- Sequential testing (one test at a time)
+- Automatic verification
+- Detailed result display
 
 ## Đóng góp
 Để report bug hoặc đóng góp, vui lòng tạo issue hoặc pull request.

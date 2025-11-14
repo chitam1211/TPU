@@ -135,25 +135,25 @@ Tuy encoding rõ ràng, nhưng có vấn đề về **định nghĩa hoạt đ�
 ### 4.1 CÁC LỆNH CẦN THIẾT CHO ML
 
 Neural networks cần:
-1. **Load input/weights (Matrix A/B)**: ✅ Cần thiết
-2. **Load/Store activations (Matrix C)**: ✅ Cần thiết  
-3. **Support 8-bit quantization**: ✅ Quan trọng cho INT8 inference
-4. **Support FP16/BF16**: ✅ Quan trọng cho mixed-precision training
-5. **Support FP32**: ✅ Cần thiết cho training
+1. **Load input/weights (Matrix A/B)**: Cần thiết
+2. **Load/Store activations (Matrix C)**: Cần thiết  
+3. **Support 8-bit quantization**: Quan trọng cho INT8 inference
+4. **Support FP16/BF16**: Quan trọng cho mixed-precision training
+5. **Support FP32**: Cần thiết cho training
 
 ### 4.2 CÁC LỆNH KHÔNG CẦN THIẾT
 
-❌ **64-bit operations (mlae64, mlbe64, etc.)**
+[X] **64-bit operations (mlae64, mlbe64, etc.)**
 - Mâu thuẫn với ELEN=32
 - Neural networks không dùng FP64/INT64
 - Loại bỏ: 16 lệnh (8 load + 8 store)
 
-❌ **Whole register operations (mlme/msme)**
+[X] **Whole register operations (mlme/msme)**
 - Định nghĩa không rõ ràng
 - Không cần thiết (có thể dùng mlae/mlbe/mlce thay thế)
 - Loại bỏ: 8 lệnh (4 load + 4 store)
 
-❓ **Transposed operations (mlate, mlbte, mlcte)**
+[?] **Transposed operations (mlate, mlbte, mlcte)**
 - Có thể hữu ích cho một số trường hợp
 - Nhưng spec không rõ ràng về memory layout
 - **GIỮ LẠI** nhưng cần implementation cẩn thận
@@ -200,16 +200,16 @@ Neural networks cần:
 
 ### 6.1 ML FUNCTIONALITY PRESERVED
 
-✅ **INT8 Inference**: Có mlae8/mlbe8/mlce8 (load activations, weights, results)
-✅ **FP16 Training**: Có mlae16/mlbe16/mlce16  
-✅ **BF16 Training**: Có mlae16/mlbe16/mlce16 (BF16 cùng size với FP16)
-✅ **FP32 Training**: Có mlae32/mlbe32/mlce32
-✅ **Transpose support**: Có mlate*/mlbte*/mlcte* cho các thuật toán cần transpose
+[OK] **INT8 Inference**: Có mlae8/mlbe8/mlce8 (load activations, weights, results)
+[OK] **FP16 Training**: Có mlae16/mlbe16/mlce16  
+[OK] **BF16 Training**: Có mlae16/mlbe16/mlce16 (BF16 cùng size với FP16)
+[OK] **FP32 Training**: Có mlae32/mlbe32/mlce32
+[OK] **Transpose support**: Có mlate*/mlbte*/mlcte* cho các thuật toán cần transpose
 
 ### 6.2 REMOVED FEATURES
 
-❌ **FP64/INT64**: Không ảnh hưởng (không dùng trong ML)
-❌ **Whole register load/store**: Không ảnh hưởng (có thể dùng regular load/store)
+[X] **FP64/INT64**: Không ảnh hưởng (không dùng trong ML)
+[X] **Whole register load/store**: Không ảnh hưởng (có thể dùng regular load/store)
 
 ## 7. KẾT LUẬN
 
