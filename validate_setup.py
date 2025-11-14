@@ -17,10 +17,10 @@ def check_python_version():
     print("\n[1/8] Checking Python version...")
     version = sys.version_info
     if version.major < 3 or (version.major == 3 and version.minor < 8):
-        print(f"    ❌ FAIL: Python {version.major}.{version.minor} detected")
+        print(f"    [FAIL] Python {version.major}.{version.minor} detected")
         print(f"    Required: Python 3.8+")
         return False
-    print(f"    ✅ PASS: Python {version.major}.{version.minor}.{version.micro}")
+    print(f"    [PASS] Python {version.major}.{version.minor}.{version.micro}")
     return True
 
 def check_project_structure():
@@ -51,9 +51,9 @@ def check_project_structure():
             type_str = "File"
         
         if exists:
-            print(f"    ✅ {type_str}: {item}")
+            print(f"    [OK] {type_str}: {item}")
         else:
-            print(f"    ❌ MISSING: {item}")
+            print(f"    [MISSING] {item}")
             all_ok = False
     
     return all_ok
@@ -72,9 +72,9 @@ def check_imports():
     for module_name, display_name in modules_to_check:
         try:
             importlib.import_module(module_name)
-            print(f"    ✅ Import: {display_name}")
+            print(f"    [OK] Import: {display_name}")
         except ImportError as e:
-            print(f"    ❌ FAIL: Cannot import {display_name}")
+            print(f"    [FAIL] Cannot import {display_name}")
             print(f"       Error: {e}")
             all_ok = False
     
@@ -98,14 +98,14 @@ def check_mixin_classes():
         all_ok = True
         for method_name, mixin_name in required_methods:
             if hasattr(MatrixAccelerator, method_name):
-                print(f"    ✅ Method: {method_name} (from {mixin_name})")
+                print(f"    [OK] Method: {method_name} (from {mixin_name})")
             else:
-                print(f"    ❌ MISSING: {method_name} (from {mixin_name})")
+                print(f"    [MISSING] {method_name} (from {mixin_name})")
                 all_ok = False
         
         return all_ok
     except Exception as e:
-        print(f"    ❌ FAIL: Cannot check mixins")
+        print(f"    [FAIL] Cannot check mixins")
         print(f"       Error: {e}")
         return False
 
@@ -130,14 +130,14 @@ def check_required_attributes():
         all_ok = True
         for attr in required_attrs:
             if hasattr(ma, attr):
-                print(f"    ✅ Attribute: {attr}")
+                print(f"    [OK] Attribute: {attr}")
             else:
-                print(f"    ❌ MISSING: {attr}")
+                print(f"    [MISSING] {attr}")
                 all_ok = False
         
         return all_ok
     except Exception as e:
-        print(f"    ❌ FAIL: Cannot create MatrixAccelerator")
+        print(f"    [FAIL] Cannot create MatrixAccelerator")
         print(f"       Error: {e}")
         return False
 
@@ -146,10 +146,10 @@ def check_optional_dependencies():
     print("\n[6/8] Checking optional dependencies...")
     try:
         import numpy
-        print(f"    ✅ numpy {numpy.__version__} (for float16 support)")
+        print(f"    [OK] numpy {numpy.__version__} (for float16 support)")
         has_numpy = True
     except ImportError:
-        print(f"    ⚠️  numpy not installed (float16 tests will use fallback)")
+        print(f"    [WARNING] numpy not installed (float16 tests will use fallback)")
         has_numpy = False
     
     return True  # Optional, so always return True
@@ -163,13 +163,13 @@ def check_encoding_support():
         encoded = test_str.encode('utf-8')
         decoded = encoded.decode('utf-8')
         if test_str == decoded:
-            print(f"    ✅ UTF-8 encoding: Supported")
+            print(f"    [OK] UTF-8 encoding: Supported")
             return True
         else:
-            print(f"    ❌ UTF-8 encoding: Failed")
+            print(f"    [FAIL] UTF-8 encoding: Failed")
             return False
     except Exception as e:
-        print(f"    ❌ UTF-8 encoding: Error - {e}")
+        print(f"    [FAIL] UTF-8 encoding: Error - {e}")
         return False
 
 def check_simulator_run():
@@ -178,10 +178,10 @@ def check_simulator_run():
     try:
         from iss.iss import Simulator
         sim = Simulator()
-        print(f"    ✅ Simulator created successfully")
+        print(f"    [OK] Simulator created successfully")
         return True
     except Exception as e:
-        print(f"    ❌ FAIL: Cannot create Simulator")
+        print(f"    [FAIL] Cannot create Simulator")
         print(f"       Error: {e}")
         return False
 
@@ -212,7 +212,7 @@ def main():
             result = check_func()
             results.append(result)
         except Exception as e:
-            print(f"\n    ❌ UNEXPECTED ERROR: {e}")
+            print(f"\n    [ERROR] UNEXPECTED ERROR: {e}")
             results.append(False)
     
     # Summary
@@ -226,12 +226,12 @@ def main():
     print(f"Passed: {passed}/{total}")
     
     if all(results):
-        print("\n✅ ALL CHECKS PASSED! Project is ready to use.")
+        print("\n[OK] ALL CHECKS PASSED! Project is ready to use.")
         print("\nYou can now run:")
         print("  python -m iss.run_simulator")
         return 0
     else:
-        print("\n❌ SOME CHECKS FAILED! Please fix the issues above.")
+        print("\n[FAIL] SOME CHECKS FAILED! Please fix the issues above.")
         print("\nCommon fixes:")
         print("  1. Make sure you're in the TPU/ root directory")
         print("  2. Run: git pull origin oop_ver")
