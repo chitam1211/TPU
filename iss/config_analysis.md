@@ -23,7 +23,7 @@ mrelease: func=0000, uop=00, ctrl=0, rs2=00000, rs1=00000, func3=000
 ```
 **Chức năng**: Set mstatus.MS = 01 (activate matrix extension)
 
-**Encoding**: Rõ ràng, duy nhất ✅
+**Encoding**: Rõ ràng, duy nhất [OK]
 
 ### 2.2 SET TILE K (func=0001)
 ```
@@ -32,7 +32,7 @@ msettilek:  func=0001, uop=00, ctrl=1, func3=000 (register: rs1)
 ```
 **Chức năng**: Set mtilek CSR (tile size K dimension)
 
-**Encoding**: Phân biệt rõ ràng bằng ctrl bit ✅
+**Encoding**: Phân biệt rõ ràng bằng ctrl bit [OK]
 
 ### 2.3 SET TILE M (func=0010)
 ```
@@ -41,7 +41,7 @@ msettilem:  func=0010, uop=00, ctrl=1, func3=000 (register: rs1)
 ```
 **Chức năng**: Set mtilem CSR (tile size M dimension)
 
-**Encoding**: Phân biệt rõ ràng bằng ctrl bit ✅
+**Encoding**: Phân biệt rõ ràng bằng ctrl bit [OK]
 
 ### 2.4 SET TILE N (func=0011)
 ```
@@ -50,7 +50,7 @@ msettilen:  func=0011, uop=00, ctrl=1, func3=000 (register: rs1)
 ```
 **Chức năng**: Set mtilen CSR (tile size N dimension)
 
-**Encoding**: Phân biệt rõ ràng bằng ctrl bit ✅
+**Encoding**: Phân biệt rõ ràng bằng ctrl bit [OK]
 
 ## 3. PHÂN TÍCH ENCODING CONFLICTS
 
@@ -62,26 +62,26 @@ Encoding được xác định bởi: `func4[3:0] + uop[1:0] + ctrl[0]`
 
 | Instruction   | func4 | uop | ctrl | Unique? |
 |---------------|-------|-----|------|---------|
-| mrelease      | 0000  | 00  | 0    | ✅      |
-| msettileki    | 0001  | 00  | 0    | ✅      |
-| msettilek     | 0001  | 00  | 1    | ✅      |
-| msettilemi    | 0010  | 00  | 0    | ✅      |
-| msettilem     | 0010  | 00  | 1    | ✅      |
-| msettileni    | 0011  | 00  | 0    | ✅      |
-| msettilen     | 0011  | 00  | 1    | ✅      |
+| mrelease      | 0000  | 00  | 0    | [OK]      |
+| msettileki    | 0001  | 00  | 0    | [OK]      |
+| msettilek     | 0001  | 00  | 1    | [OK]      |
+| msettilemi    | 0010  | 00  | 0    | [OK]      |
+| msettilem     | 0010  | 00  | 1    | [OK]      |
+| msettileni    | 0011  | 00  | 0    | [OK]      |
+| msettilen     | 0011  | 00  | 1    | [OK]      |
 
-**KẾT LUẬN: ✅ KHÔNG CÓ ENCODING CONFLICTS**
+**KẾT LUẬN: [OK] KHÔNG CÓ ENCODING CONFLICTS**
 
 Tất cả 7 lệnh có encoding hoàn toàn duy nhất!
 
 ### 3.2 KIỂM TRA SPEC AMBIGUITY
 
-#### ✅ Định nghĩa rõ ràng:
+#### [OK] Định nghĩa rõ ràng:
 1. **mrelease**: Activate matrix extension (set mstatus.MS)
 2. **msettile{k,m,n}[i]**: Set tile dimensions (K, M, N)
 3. **ctrl bit**: Phân biệt rõ ràng immediate vs register source
 
-#### ⚠️ Các vấn đề tiềm ẩn (không phải conflicts):
+#### [WARNING] Các vấn đề tiềm ẩn (không phải conflicts):
 
 **VẤN ĐỀ 1: Range validation**
 - Spec KHÔNG RÕ RÀNG về:
@@ -110,10 +110,10 @@ Tất cả 7 lệnh có encoding hoàn toàn duy nhất!
 ### 4.1 CÁC LỆNH CẦN THIẾT CHO ML
 
 Neural networks cần:
-1. ✅ **mrelease** - BẮT BUỘC để activate matrix extension
-2. ✅ **msettileki/msettilek** - BẮT BUỘC để config tile K
-3. ✅ **msettilemi/msettilem** - BẮT BUỘC để config tile M
-4. ✅ **msettileni/msettilen** - BẮT BUỘC để config tile N
+1. [OK] **mrelease** - BẮT BUỘC để activate matrix extension
+2. [OK] **msettileki/msettilek** - BẮT BUỘC để config tile K
+3. [OK] **msettilemi/msettilem** - BẮT BUỘC để config tile M
+4. [OK] **msettileni/msettilen** - BẮT BUỘC để config tile N
 
 ### 4.2 USE CASES TRONG ML
 
@@ -184,7 +184,7 @@ msettilen t2
 ### 4.4 TẦM QUAN TRỌNG TRONG ML
 
 #### CRITICAL (Không thể thiếu):
-- ✅ **Tất cả 7 lệnh CONFIG đều CẦN THIẾT**
+- [OK] **Tất cả 7 lệnh CONFIG đều CẦN THIẾT**
 
 Lý do:
 1. Matrix operations PHẢI biết tile dimensions
@@ -196,23 +196,23 @@ Lý do:
 #### ẢNH HƯỞNG NẾU LOẠI BỎ:
 
 **Nếu loại bỏ mrelease:**
-❌ **KHÔNG THỂ CHẠY** - Matrix extension không được activate
+[X] **KHÔNG THỂ CHẠY** - Matrix extension không được activate
 
 **Nếu loại bỏ msettile*:**
-❌ **KHÔNG THỂ CHẠY** - Không có thông tin tile dimensions
+[X] **KHÔNG THỂ CHẠY** - Không có thông tin tile dimensions
 
 **Nếu chỉ giữ immediate variants (bỏ register variants):**
-⚠️ **HẠN CHẾ NGHIÊM TRỌNG**:
+[WARNING] **HẠN CHẾ NGHIÊM TRỌNG**:
 - Không hỗ trợ dynamic batch sizes
 - Không hỗ trợ variable sequence lengths (Transformers)
 - Training khó khăn (batch size thay đổi)
 - Phải recompile cho mỗi input shape
 
 **Nếu chỉ giữ register variants (bỏ immediate variants):**
-⚠️ **KÉM HIỆU QUẢ**:
+[WARNING] **KÉM HIỆU QUẢ**:
 - Overhead thêm 2-3 instructions (li + store)
 - Code dài hơn
-- Nhưng vẫn FUNCTIONAL ✅
+- Nhưng vẫn FUNCTIONAL [OK]
 
 ## 5. KHUYẾN NGHỊ
 
@@ -221,24 +221,24 @@ Lý do:
 **KHÔNG THỂ LOẠI BỎ BẤT KỲ LỆNH NÀO!**
 
 #### Priority 1 - CRITICAL (4 lệnh):
-1. ✅ **mrelease** - Activate matrix unit
-2. ✅ **msettileki** - Set K dimension (immediate)
-3. ✅ **msettilemi** - Set M dimension (immediate)
-4. ✅ **msettileni** - Set N dimension (immediate)
+1. [OK] **mrelease** - Activate matrix unit
+2. [OK] **msettileki** - Set K dimension (immediate)
+3. [OK] **msettilemi** - Set M dimension (immediate)
+4. [OK] **msettileni** - Set N dimension (immediate)
 
 #### Priority 2 - VERY IMPORTANT (3 lệnh):
-5. ✅ **msettilek** - Set K dimension (register, dynamic)
-6. ✅ **msettilem** - Set M dimension (register, dynamic)
-7. ✅ **msettilen** - Set N dimension (register, dynamic)
+5. [OK] **msettilek** - Set K dimension (register, dynamic)
+6. [OK] **msettilem** - Set M dimension (register, dynamic)
+7. [OK] **msettilen** - Set N dimension (register, dynamic)
 
 ### 5.2 KHÔNG CÓ LỆNH NÀO CẦN LOẠI BỎ
 
 **Lý do**:
-- ✅ Không có encoding conflicts
-- ✅ Tất cả đều cần thiết cho ML
-- ✅ Immediate variants: static models, inference
-- ✅ Register variants: dynamic models, training
-- ✅ Spec rõ ràng, implementation đơn giản
+- [OK] Không có encoding conflicts
+- [OK] Tất cả đều cần thiết cho ML
+- [OK] Immediate variants: static models, inference
+- [OK] Register variants: dynamic models, training
+- [OK] Spec rõ ràng, implementation đơn giản
 
 ### 5.3 CẦN BỔ SUNG VALIDATION
 
@@ -276,22 +276,22 @@ if value % ALIGNMENT != 0:
 **Với 7 lệnh CONFIG:**
 
 #### Training:
-- ✅ Dynamic batch sizes (register variants)
-- ✅ Variable sequence lengths (Transformers)
-- ✅ Flexible model architectures
-- ✅ Data augmentation (varying input sizes)
+- [OK] Dynamic batch sizes (register variants)
+- [OK] Variable sequence lengths (Transformers)
+- [OK] Flexible model architectures
+- [OK] Data augmentation (varying input sizes)
 
 #### Inference:
-- ✅ Static optimization (immediate variants)
-- ✅ Fixed batch inference (edge devices)
-- ✅ Dynamic batching (cloud inference)
-- ✅ Multi-model serving
+- [OK] Static optimization (immediate variants)
+- [OK] Fixed batch inference (edge devices)
+- [OK] Dynamic batching (cloud inference)
+- [OK] Multi-model serving
 
 #### Supported Models:
-- ✅ CNNs: ResNet, VGG, EfficientNet, MobileNet
-- ✅ Transformers: BERT, GPT, ViT (variable seq_len)
-- ✅ RNNs: LSTM, GRU (variable time steps)
-- ✅ Hybrid models: Vision Transformers, DETR
+- [OK] CNNs: ResNet, VGG, EfficientNet, MobileNet
+- [OK] Transformers: BERT, GPT, ViT (variable seq_len)
+- [OK] RNNs: LSTM, GRU (variable time steps)
+- [OK] Hybrid models: Vision Transformers, DETR
 
 ### 6.2 KHÔNG THỂ LOẠI BỎ BẤT KỲ LỆNH NÀO
 
@@ -299,47 +299,47 @@ if value % ALIGNMENT != 0:
 
 | Lệnh bị loại bỏ | Tác động |
 |------------------|----------|
-| mrelease | ❌ Matrix unit không hoạt động |
-| msettileki/k | ❌ Không config được K dimension |
-| msettilemi/m | ❌ Không config được M dimension |
-| msettileni/n | ❌ Không config được N dimension |
-| All *i variants | ⚠️ Kém hiệu quả, nhưng vẫn chạy được |
-| All register variants | ⚠️ Mất tính dynamic, training khó khăn |
+| mrelease | [X] Matrix unit không hoạt động |
+| msettileki/k | [X] Không config được K dimension |
+| msettilemi/m | [X] Không config được M dimension |
+| msettileni/n | [X] Không config được N dimension |
+| All *i variants | [WARNING] Kém hiệu quả, nhưng vẫn chạy được |
+| All register variants | [WARNING] Mất tính dynamic, training khó khăn |
 
 ## 7. KẾT LUẬN
 
-### 🎯 CONFIGURATION INSTRUCTIONS: HOÀN HẢO
+### [GOAL] CONFIGURATION INSTRUCTIONS: HOÀN HẢO
 
 #### Encoding Quality: ⭐⭐⭐⭐⭐
-- ✅ **KHÔNG CÓ ENCODING CONFLICTS**
-- ✅ Tất cả 7 lệnh có encoding duy nhất
-- ✅ ctrl bit phân biệt rõ ràng immediate/register
-- ✅ Consistent naming convention
+- [OK] **KHÔNG CÓ ENCODING CONFLICTS**
+- [OK] Tất cả 7 lệnh có encoding duy nhất
+- [OK] ctrl bit phân biệt rõ ràng immediate/register
+- [OK] Consistent naming convention
 
 #### Spec Quality: ⭐⭐⭐⭐☆
-- ✅ Chức năng rõ ràng, dễ hiểu
-- ✅ Implementation đơn giản
-- ⚠️ Thiếu validation spec (range, timing, error handling)
+- [OK] Chức năng rõ ràng, dễ hiểu
+- [OK] Implementation đơn giản
+- [WARNING] Thiếu validation spec (range, timing, error handling)
 
 #### ML Applicability: ⭐⭐⭐⭐⭐
-- ✅ **TẤT CẢ 7 LỆNH ĐỀU CẦN THIẾT**
-- ✅ Hỗ trợ đầy đủ static + dynamic use cases
-- ✅ Không thể loại bỏ bất kỳ lệnh nào mà không ảnh hưởng ML
-- ✅ Cân bằng tốt giữa simplicity và flexibility
+- [OK] **TẤT CẢ 7 LỆNH ĐỀU CẦN THIẾT**
+- [OK] Hỗ trợ đầy đủ static + dynamic use cases
+- [OK] Không thể loại bỏ bất kỳ lệnh nào mà không ảnh hưởng ML
+- [OK] Cân bằng tốt giữa simplicity và flexibility
 
-### 📊 SO SÁNH VỚI CÁC INSTRUCTION GROUPS KHÁC
+### [ANALYSIS] SO SÁNH VỚI CÁC INSTRUCTION GROUPS KHÁC
 
 | Group | Encoding Conflicts | Lệnh loại bỏ | ML Impact |
 |-------|-------------------|--------------|-----------|
-| CONFIG | ✅ KHÔNG | ✅ KHÔNG | ✅ Hoàn hảo |
-| MATMUL | ❌ 4 conflicts | ❌ 4 lệnh | ✅ Không ảnh hưởng |
-| MISC | ❌ 1 conflict | ❌ 23 lệnh | ✅ Không ảnh hưởng |
-| LOADSTORE | ✅ KHÔNG | ❌ 24 lệnh | ✅ Không ảnh hưởng |
-| ELEMENTWISE | ❌ 3 conflicts | ❌ 30+ lệnh | ✅ Không ảnh hưởng |
+| CONFIG | [OK] KHÔNG | [OK] KHÔNG | [OK] Hoàn hảo |
+| MATMUL | [X] 4 conflicts | [X] 4 lệnh | [OK] Không ảnh hưởng |
+| MISC | [X] 1 conflict | [X] 23 lệnh | [OK] Không ảnh hưởng |
+| LOADSTORE | [OK] KHÔNG | [X] 24 lệnh | [OK] Không ảnh hưởng |
+| ELEMENTWISE | [X] 3 conflicts | [X] 30+ lệnh | [OK] Không ảnh hưởng |
 
 **CONFIG là instruction group DUY NHẤT hoàn hảo!**
 
-### ✅ KHUYẾN NGHỊ CUỐI CÙNG
+### [OK] KHUYẾN NGHỊ CUỐI CÙNG
 
 1. **GIỮ TẤT CẢ 7 LỆNH** - Không loại bỏ gì cả
 2. **BỔ SUNG VALIDATION** - Range checks, VLEN compatibility
@@ -349,11 +349,11 @@ if value % ALIGNMENT != 0:
 ### 🎓 BÀI HỌC TỪ CONFIG INSTRUCTIONS
 
 **Tại sao CONFIG tốt hơn các groups khác:**
-1. ✅ Simple encoding scheme (func4 + ctrl bit)
-2. ✅ Clear naming convention
-3. ✅ Minimal feature set (chỉ những gì cần thiết)
-4. ✅ Consistent immediate/register pairing
-5. ✅ No experimental/specialized variants
+1. [OK] Simple encoding scheme (func4 + ctrl bit)
+2. [OK] Clear naming convention
+3. [OK] Minimal feature set (chỉ những gì cần thiết)
+4. [OK] Consistent immediate/register pairing
+5. [OK] No experimental/specialized variants
 
 **Nên áp dụng cho các groups khác:**
 - Remove conflicting encodings

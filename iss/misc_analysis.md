@@ -113,7 +113,7 @@ mtrans.m.m:   func=1100, uop=10, ctrl=000, func3=000
 ```
 **Encoding**: Rõ ràng, phân biệt bằng ctrl24_23 [OK]
 ```
-**Encoding**: Rõ ràng, phân biệt bằng func và func3 ✅
+**Encoding**: Rõ ràng, phân biệt bằng func và func3 [OK]
 
 ### Nhóm 5: Slide Operations (func=0101-1000, uop=11)
 ```
@@ -132,7 +132,7 @@ mcslideup.h: func=1000, uop=11, s_size=01, func3=000, d_size=01
 mcslideup.w: func=1000, uop=11, s_size=10, func3=000, d_size=10
 mcslideup.d: func=1000, uop=11, s_size=11, func3=000, d_size=11
 ```
-**Encoding**: Rõ ràng, phân biệt bằng func và s_size/d_size ✅
+**Encoding**: Rõ ràng, phân biệt bằng func và s_size/d_size [OK]
 
 ### Nhóm 6: Broadcast Column/All Operations (func=1001/1010, uop=11)
 ```
@@ -143,7 +143,7 @@ mcbcah.mv.i:  func=1010, uop=11, s_size=01, func3=000, d_size=01
 mcbcaw.mv.i:  func=1010, uop=11, s_size=10, func3=000, d_size=10
 mcbcad.mv.i:  func=1010, uop=11, s_size=11, func3=000, d_size=11
 ```
-**Encoding**: Rõ ràng ✅
+**Encoding**: Rõ ràng [OK]
 
 ### Nhóm 7: Pack Operations (func=0100, uop=11)
 ```
@@ -164,29 +164,29 @@ mmovd.x.m: func=0010, uop=11, ctrl25=0, ctrl24_23=11, func3=000
 
 **Nghi ngờ**: Có thể là lỗi đánh máy trong spec. Có thể mmovd.x.m nên là ctrl24_23=00?
 
-## ✅ CÁC LỆNH CẦN THIẾT CHO ML
+## [OK] CÁC LỆNH CẦN THIẾT CHO ML
 
 ### Quan trọng (Core operations):
-1. ✅ **mzero** - Zero initialize matrix (cần thiết)
-2. ✅ **mmov.mm** - Copy matrix register (cần thiết)
-3. ✅ **mmovw.m.x** - Load scalar to matrix (hữu ích cho bias, constants)
-4. ✅ **mdupw.m.x** - Broadcast scalar to matrix (quan trọng cho broadcasting)
+1. [OK] **mzero** - Zero initialize matrix (cần thiết)
+2. [OK] **mmov.mm** - Copy matrix register (cần thiết)
+3. [OK] **mmovw.m.x** - Load scalar to matrix (hữu ích cho bias, constants)
+4. [OK] **mdupw.m.x** - Broadcast scalar to matrix (quan trọng cho broadcasting)
 
 ### Hữu ích (Nice to have):
-5. ✅ **mmovw.x.m** - Extract scalar from matrix (debugging, reduction)
-6. ✅ **mrslidedown/up** - Row permutation (data shuffling)
-7. ✅ **mcslidedown/up.w** - Column permutation (data shuffling)
+5. [OK] **mmovw.x.m** - Extract scalar from matrix (debugging, reduction)
+6. [OK] **mrslidedown/up** - Row permutation (data shuffling)
+7. [OK] **mcslidedown/up.w** - Column permutation (data shuffling)
 
 ### Không cần thiết cho ML cơ bản:
-- ❌ **mzero2r, mzero4r, mzero8r** - Optimization variants, có mzero là đủ
-- ❌ **mmovb/h/d variants** - 8/16/64-bit operations ít dùng trong ML
-- ❌ **mdupb/h/d** - 8/16/64-bit broadcast, có mdupw (32-bit) là đủ
-- ❌ **mbce8, mrbc.mv.i, mcbce8.mv.i** - Broadcast operations phức tạp, không rõ spec
-- ❌ **mcslidedown/up.b/h/d** - 8/16/64-bit slide, có .w (32-bit) là đủ
-- ❌ **mrbca.mv.i, mcbca*.mv.i** - Advanced broadcast, ít dùng
-- ❌ **mpack variants** - Packing operations, không phổ biến trong neural nets
+- [X] **mzero2r, mzero4r, mzero8r** - Optimization variants, có mzero là đủ
+- [X] **mmovb/h/d variants** - 8/16/64-bit operations ít dùng trong ML
+- [X] **mdupb/h/d** - 8/16/64-bit broadcast, có mdupw (32-bit) là đủ
+- [X] **mbce8, mrbc.mv.i, mcbce8.mv.i** - Broadcast operations phức tạp, không rõ spec
+- [X] **mcslidedown/up.b/h/d** - 8/16/64-bit slide, có .w (32-bit) là đủ
+- [X] **mrbca.mv.i, mcbca*.mv.i** - Advanced broadcast, ít dùng
+- [X] **mpack variants** - Packing operations, không phổ biến trong neural nets
 
-## 🎯 ĐỀ XUẤT: 7 LỆNH CỐT LÕI CHO ML
+## [GOAL] ĐỀ XUẤT: 7 LỆNH CỐT LÕI CHO ML
 
 ### Priority 1 (Bắt buộc - 4 lệnh):
 1. **mzero** - Zero initialize
@@ -199,21 +199,21 @@ mmovd.x.m: func=0010, uop=11, ctrl25=0, ctrl24_23=11, func3=000
 6. **mrslidedown** - Row permutation (data augmentation, transpose emulation)
 7. **mcslidedown.w** - Column permutation
 
-## 📊 ĐÁNH GIÁ TÁC ĐỘNG
+## [ANALYSIS] ĐÁNH GIÁ TÁC ĐỘNG
 
 ### Có thể bỏ qua mà KHÔNG ảnh hưởng ML:
-- ✅ 8/16/64-bit operations → Neural networks chủ yếu dùng FP32/FP16
-- ✅ Advanced broadcast ops → Có thể làm bằng load + matmul
-- ✅ Pack operations → Không cần trong standard convolution/matmul
-- ✅ Multiple zero variants → Optimization, không thay đổi functionality
+- [OK] 8/16/64-bit operations → Neural networks chủ yếu dùng FP32/FP16
+- [OK] Advanced broadcast ops → Có thể làm bằng load + matmul
+- [OK] Pack operations → Không cần trong standard convolution/matmul
+- [OK] Multiple zero variants → Optimization, không thay đổi functionality
 
 ### Các operations thiết yếu còn thiếu:
-- ⚠️ **Transpose operation** - Quan trọng cho ML (có thể emulate bằng slide)
-- ⚠️ **Reduction operations** (sum, max) - Hữu ích cho pooling, softmax
-- ⚠️ **Activation functions** - ReLU, sigmoid (có thể làm bằng element-wise)
+- [WARNING] **Transpose operation** - Quan trọng cho ML (có thể emulate bằng slide)
+- [WARNING] **Reduction operations** (sum, max) - Hữu ích cho pooling, softmax
+- [WARNING] **Activation functions** - ReLU, sigmoid (có thể làm bằng element-wise)
 
 ### Kết luận:
-**✅ 7 lệnh MISC cốt lõi ĐỦ cho học máy đơn giản**
+**[OK] 7 lệnh MISC cốt lõi ĐỦ cho học máy đơn giản**
 
 Lý do:
 1. Zero initialization ✓
