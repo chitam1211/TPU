@@ -309,6 +309,54 @@ def run_simulator():
     return result.returncode == 0
 
 
+def verify_test(test_info):
+    """Automatically verify if input matches output in memory"""
+    iss_dir = SCRIPT_DIR
+    memory_file = iss_dir / "memory.txt"
+    
+    if not memory_file.exists():
+        return False, "memory.txt not found"
+    
+    with open(memory_file, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+    
+    # Parse memory to get input and output data
+    memory_data = {}
+    for line in lines:
+        if ':' in line and not line.startswith('#'):
+            parts = line.split(':', 1)
+            try:
+                addr = int(parts[0].strip(), 16)
+                data = parts[1].strip()
+                memory_data[addr] = data
+            except:
+                continue
+    
+    # Get input and output addresses
+    input_addr = test_info['input_addr']
+    output_addr = test_info['output_addr']
+    
+    # Compare 4 rows (4x16 bytes for 4 rows)
+    mismatches = []
+    all_match = True
+    
+    for row in range(4):
+        in_addr = input_addr + row * 0x10
+        out_addr = output_addr + row * 0x10
+        
+        input_data = memory_data.get(in_addr, "")
+        output_data = memory_data.get(out_addr, "")
+        
+        if input_data != output_data:
+            all_match = False
+            mismatches.append(f"Row {row}: 0x{in_addr:03X} != 0x{out_addr:03X}")
+    
+    if all_match:
+        return True, "All rows match ✓"
+    else:
+        return False, "Mismatch found:\n    " + "\n    ".join(mismatches)
+
+
 def display_results(test_info):
     """Display results for current test"""
     print("\n" + "="*80)
@@ -358,9 +406,19 @@ def display_results(test_info):
             elif output_hex in line:
                 print(f"  Output {line.strip()}")
     
+    # AUTO VERIFICATION
     print("\n" + "-"*80)
-    print(f"[Expected] Data from {input_hex} should match data at {output_hex}")
+    print("[VERIFICATION]")
+    success, message = verify_test(test_info)
+    
+    if success:
+        print(f"  ✓ PASS - {message}")
+    else:
+        print(f"  ✗ FAIL - {message}")
+    
     print("-"*80)
+    
+    return success
 
 
 def run_single_test(test_info, test_num, total_tests):
@@ -391,10 +449,10 @@ def run_single_test(test_info, test_num, total_tests):
         return False
     print("  [OK] Simulation complete")
     
-    # Step 4: Display results
-    display_results(test_info)
+    # Step 4: Display results and verify
+    passed = display_results(test_info)
     
-    return True
+    return passed
 
 
 def main():
@@ -419,8 +477,16 @@ def main():
         
         # Run each test
         total_tests = len(TEST_CASES)
+        passed_tests = 0
+        failed_tests = 0
+        
         for i, test_info in enumerate(TEST_CASES, 1):
             success = run_single_test(test_info, i, total_tests)
+            
+            if success:
+                passed_tests += 1
+            else:
+                failed_tests += 1
             
             if not success:
                 print(f"\n[ERROR] Test {i} failed!")
@@ -436,6 +502,9 @@ def main():
         print("\n" + "="*80)
         print("ALL TESTS COMPLETE!")
         print("="*80)
+        print(f"\n[SUMMARY]")
+        print(f"  ✓ Passed: {passed_tests}/{total_tests}")
+        print(f"  ✗ Failed: {failed_tests}/{total_tests}")
         print("\nOutput files:")
         print(f"  - {SCRIPT_DIR / 'matrix.txt'}")
         print(f"  - {SCRIPT_DIR / 'matrix_float.txt'}")

@@ -7,7 +7,6 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 from .iss import Simulator
 from .state_manager import load_state_from_files, save_state_to_files
 from .matrix_input import run_interactive_setup
-from .reset_state import reset_all_files_to_default  # Import hàm reset
 
 def main():
     """
@@ -33,12 +32,6 @@ def main():
             run_interactive_setup()
             print("\nSetup complete. Run again without '--setup' flag to simulate.")
             return # Exit after setup
-
-        # Handle --reset flag
-        if sys.argv[1] in ['--reset', '-r']:
-            print("--- Running Reset Mode ---")
-            reset_all_files_to_default()
-            print("Reset complete. Starting simulation with clean state.")
 
     # --- 1. Initialize Simulator (Create objects in RAM) ---
     print("--- 1. Initializing Simulator (In RAM) ---")
@@ -79,4 +72,4 @@ def main():
 if __name__ == "__main__":
     main()
 # python -m iss.run_simulator
-# python -m iss.run_simulator -r # Run reset mode
+# python -m iss.run_simulator -s # Run setup mode

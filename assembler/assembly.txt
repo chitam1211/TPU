@@ -1,10 +1,13 @@
-msettilemi 4 
+# Test: mlae16/msae16
+# Load/Store 16-bit float (tr1)
+
+# Setup tile dimensions
+msettilemi 4
 msettileki 4
 msettileni 4
-mfmacc.h acc0, tr0, tr1 # 16-bit float point
-mfmacc.s acc1, tr0, tr1 # 32-bit float point
-mfmacc.s.bf16 acc2, tr0, tr1 # 16-bit float point, output double-widen
-mmacc.w.b acc0, tr0, tr1 #signed-signed 8bit, output quad-widen
-mmaccu.w.b acc1, tr0, tr1 #unsigned-unsigned 8bit, output quad-widen
-mmaccus.w.b acc2, tr0, tr1 #unsigned-signed 8bit, output quad-widen
- 
+
+# Load instruction
+mlae16 tr1, (x3), x4
+
+# Store instruction
+msae16 tr1, (x11), x10
