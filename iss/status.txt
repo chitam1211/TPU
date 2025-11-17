@@ -1,0 +1,8 @@
+--- Status CSRs ---
+xmcsr   : 0x00000000
+xmsat   : 0x00000000
+xmfflags: 0x00000000
+xmisa   : 0xe00003ff
+xtlenb  : 0x00000040
+xtrlenb : 0x00000010
+xalenb  : 0x00000040
