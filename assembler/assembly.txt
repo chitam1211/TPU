@@ -1,5 +1,5 @@
-# Test: mlae16/msae16
-# Load/Store 16-bit float (tr1)
+# Test: mlce8/msce8
+# Load/Store 8-bit integer column (acc1)
 
 # Setup tile dimensions
 msettilemi 4
@@ -7,7 +7,7 @@ msettileki 4
 msettileni 4
 
 # Load instruction
-mlae16 tr1, (x3), x4
+mlce8 acc1, (x14), x15
 
 # Store instruction
-msae16 tr1, (x11), x10
+msce8 acc1, (x16), x10
