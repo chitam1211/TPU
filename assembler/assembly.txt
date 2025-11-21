@@ -1,13 +1,17 @@
-# Test: mlce8/msce8
-# Load/Store 8-bit integer column (acc1)
+# Test: mmaccsu.w.b
+# Mixed INT8×UINT8 Matrix Multiply-Accumulate (s×u→INT32)
+# Operation: C = C + A × B^T
 
 # Setup tile dimensions
 msettilemi 4
 msettileki 4
 msettileni 4
 
-# Load instruction
-mlce8 acc1, (x14), x15
+# Load Matrix A into tr2
+mlbe8 tr2, (x7), x8
 
-# Store instruction
-msce8 acc1, (x16), x10
+# Load Matrix B into tr3
+mlbe8 tr3, (x9), x8
+
+# Perform matrix multiply-accumulate
+mmaccsu.w.b acc1, tr2, tr3

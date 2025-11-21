@@ -174,12 +174,6 @@ class LoadStoreLogic:
                         byte_data = self.memory.read(mem_addr, num_bytes)
                         val = self._bytes_to_value(byte_data, format_type)
                         target_reg[i][j] = val
-                        if i == 0 and j < 2:  # Debug: print first 2 values
-                            if isinstance(byte_data, (bytes, bytearray)):
-                                hex_bytes = byte_data.hex()
-                            else:
-                                hex_bytes = "NOT_BYTES_OR_BYTEARRAY"
-                            print(f"     [Debug] Loaded [{i},{j}] from 0x{mem_addr:X}: bytes={hex_bytes}, val={val}")
                     else: # Store
                         val = target_reg[i][j]
                         byte_data = self._value_to_bytes(val, format_type)

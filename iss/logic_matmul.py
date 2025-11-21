@@ -222,6 +222,40 @@ class MatmulLogic:
             mat_B_full = self.tr_int[ms2_idx]
             mat_C_old = self.acc_int[md_idx]
         
+        # --- FIX for FP8: Load stores INT8 values, need to convert to FP8 float ---
+        if instr_name in ["mfmacc.bf16.e5", "mfmacc.bf16.e4"]:
+            # FP8 data loaded via mlbe8 into tr_int, need to convert to float values
+            print(f"    - Converting FP8 INT8 data to float values...")
+            converter = bits_to_float8_e5m2 if instr_name == "mfmacc.bf16.e5" else bits_to_float8_e4m3
+            
+            # Read from tr_int instead of tr_float
+            mat_A_int = self.tr_int[ms1_idx]
+            mat_B_int = self.tr_int[ms2_idx]
+            
+            # Convert to float values
+            mat_A_full = [[converter(mat_A_int[i][j] & 0xFF) for j in range(K)] for i in range(M)]
+            mat_B_full = [[converter(mat_B_int[i][j] & 0xFF) for j in range(N)] for i in range(K)]
+        
+        # --- FIX for BF16: Load stored FP16-interpreted values, need to re-interpret as BF16 ---
+        elif instr_name == "mfmacc.s.bf16":
+            # tr_float contains values interpreted as FP16 by load logic
+            # We need to re-convert: FP32 → FP16 bits → reinterpret as BF16 → FP32
+            print("    - Re-interpreting loaded FP16 data as BF16...")
+            for i in range(M):
+                for j in range(K):
+                    # Get FP16 bits from wrongly-interpreted value
+                    fp16_value = mat_A_full[i][j]
+                    fp16_bits = float_to_bits16(fp16_value)
+                    # Reinterpret same bits as BF16
+                    bf16_value = bfloat16_to_float(fp16_bits)
+                    mat_A_full[i][j] = bf16_value
+            for i in range(K):
+                for j in range(N):
+                    fp16_value = mat_B_full[i][j]
+                    fp16_bits = float_to_bits16(fp16_value)
+                    bf16_value = bfloat16_to_float(fp16_bits)
+                    mat_B_full[i][j] = bf16_value
+        
         # 4. Thực hiện Tính toán (MÔ PHỎNG ĐỘ CHÍNH XÁC)
         # Algorithm: C[m,n] += Σ(A[m,k] * B[k,n]) for k=0..K-1
         # Matrix A: [M, K] in tr_source1

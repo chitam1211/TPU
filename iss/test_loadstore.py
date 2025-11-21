@@ -398,16 +398,43 @@ def verify_test(test_info):
         mismatches = []
         all_match = True
         
+        # Extract required bytes per element
+        if 'e32' in test_name:
+            bytes_per_row = 16  # 4 elements × 4 bytes
+        elif 'e16' in test_name:
+            bytes_per_row = 8   # 4 elements × 2 bytes
+        elif 'e8' in test_name:
+            bytes_per_row = 4   # 4 elements × 1 byte
+        else:
+            bytes_per_row = 16
+        
+        # Collect all output data (may be in one line or multiple lines)
+        output_all_bytes = []
+        for row in range(4):
+            out_addr = output_addr + row * stride
+            if out_addr in memory_data:
+                output_all_bytes.extend(memory_data[out_addr].split())
+        
+        # If output is empty but base address exists, get from base address
+        if not output_all_bytes and output_addr in memory_data:
+            output_all_bytes = memory_data[output_addr].split()
+        
+        # Compare row by row
         for row in range(4):
             in_addr = input_addr + row * stride
-            out_addr = output_addr + row * stride
-            
             input_data = memory_data.get(in_addr, "")
-            output_data = memory_data.get(out_addr, "")
             
-            if input_data != output_data:
+            # Get input bytes
+            input_bytes = ' '.join(input_data.split()[:bytes_per_row])
+            
+            # Get output bytes from collected data
+            start_idx = row * bytes_per_row
+            end_idx = start_idx + bytes_per_row
+            output_bytes = ' '.join(output_all_bytes[start_idx:end_idx])
+            
+            if input_bytes != output_bytes:
                 all_match = False
-                mismatches.append(f"Row {row}: 0x{in_addr:03X} != 0x{out_addr:03X}")
+                mismatches.append(f"Row {row}: Input '{input_bytes}' != Output '{output_bytes}'")
         
         if all_match:
             return True, "All rows match ✓"
@@ -437,15 +464,21 @@ def display_results(test_info):
     if file_path.exists():
         with open(file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
-            in_target_reg = False
+            current_reg = None
             for line in lines:
-                if f'{reg_name}:' in line:
-                    in_target_reg = True
-                    print(f"  {line.strip()}")
-                elif in_target_reg and line.strip().startswith('Row'):
-                    print(f"  {line.strip()}")
-                elif in_target_reg and any(f'{r}:' in line for r in ['tr0:', 'tr1:', 'tr2:', 'tr3:', 'acc0:', 'acc1:', 'acc2:', 'acc3:']):
-                    break
+                # Check if this is a register label line
+                for r in ['tr0:', 'tr1:', 'tr2:', 'tr3:', 'acc0:', 'acc1:', 'acc2:', 'acc3:']:
+                    if f'{r}' in line:
+                        current_reg = r.replace(':', '')
+                        print(f"  {line.strip()}")  # Print register label
+                        break
+                else:
+                    # Not a register label - check if it's a Row line
+                    if current_reg and line.strip().startswith('Row'):
+                        print(f"  {line.strip()}")
+                    elif current_reg and line.strip().startswith('('):
+                        # Also print metadata lines like "(Destination: ...)"
+                        print(f"  {line.strip()}")
     
     # Display memory
     memory_file = iss_dir / "memory.txt"

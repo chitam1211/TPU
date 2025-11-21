@@ -398,15 +398,43 @@ def save_state_to_files(sim):
             f.write("# Example: 0x3E8: 0A 14 1E\n")
             f.write("# RAM 1KB (from 0x000 to 0x3FF)\n")
             
-            # Write memory in 16-byte lines (0x00 to 0x3F0)
-            for addr in range(0, 0x400, 0x10):
-                # Read 16 bytes from memory
+            # Detect which addresses have non-zero data
+            # Use adaptive stride: 4 bytes for 0x300+ (INT8), 8 bytes for 0x200+ (FP16), 16 bytes elsewhere
+            written_addresses = set()
+            
+            # Strategy: Write in appropriate strides for each region
+            # 0x000-0x1FF: 16-byte stride (general)
+            for addr in range(0x000, 0x200, 0x10):
                 bytes_data = sim.memory.read(addr, 16)
-                # Convert to hex string with spaces
                 hex_str = ' '.join(f'{b:02X}' for b in bytes_data)
                 f.write(f"0x{addr:03X}: {hex_str}\n")
+                written_addresses.add(addr)
+            
+            # 0x200-0x2FF: 8-byte stride (FP16/BF16 region)
+            for addr in range(0x200, 0x300, 0x08):
+                if addr not in written_addresses:
+                    bytes_data = sim.memory.read(addr, 8)
+                    hex_str = ' '.join(f'{b:02X}' for b in bytes_data)
+                    f.write(f"0x{addr:03X}: {hex_str}\n")
+                    written_addresses.add(addr)
+            
+            # 0x300-0x3FF: 4-byte stride (INT8/UINT8/FP8 region)
+            for addr in range(0x300, 0x320, 0x04):
+                if addr not in written_addresses:
+                    bytes_data = sim.memory.read(addr, 4)
+                    hex_str = ' '.join(f'{b:02X}' for b in bytes_data)
+                    f.write(f"0x{addr:03X}: {hex_str}\n")
+                    written_addresses.add(addr)
+            
+            # 0x320-0x3FF: 16-byte stride (rest)
+            for addr in range(0x320, 0x400, 0x10):
+                if addr not in written_addresses:
+                    bytes_data = sim.memory.read(addr, 16)
+                    hex_str = ' '.join(f'{b:02X}' for b in bytes_data)
+                    f.write(f"0x{addr:03X}: {hex_str}\n")
+                    written_addresses.add(addr)
         
-        print(f"  memory.txt saved.")
+        print(f"  memory.txt saved ({len(written_addresses)} lines).")
     except IOError as e:
         print(f"  [Error] Could not write to memory.txt: {e}")
     except Exception as e:
