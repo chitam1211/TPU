@@ -63,13 +63,14 @@ class ElementwiseLogic:
                     val1 = self.acc_int[ms1_idx][vector_row_idx][j] # 
 
                 # Thực hiện phép toán dựa trên func4
+                # Semantics: md = ms2 op ms1 (val2 op val1)
                 res = 0
                 if func4 == "0000": # madd.w 
-                    res = val1 + val2
+                    res = val2 + val1
                 elif func4 == "0001": # msub.w 
-                    res = val1 - val2
+                    res = val2 - val1
                 elif func4 == "0010": # mmul.w 
-                    res = val1 * val2
+                    res = val2 * val1
                 elif func4 == "0100": # mmax.w 
                     res = max(val1, val2)
                 elif func4 == "0101": # mumax.w 
@@ -160,6 +161,7 @@ class ElementwiseLogic:
                     res_full = 0.0
                     
                     # --- 5. Thực hiện phép toán ---
+                    # Semantics: md = ms2 op ms1 (val2 op val1)
                     if func4 == "0000": # mfadd 
                         res_full = val2_quantized + val1_quantized
                     elif func4 == "0001": # mfsub

@@ -1,17 +1,11 @@
-# Test: mmaccsu.w.b
-# Mixed INT8×UINT8 Matrix Multiply-Accumulate (s×u→INT32)
-# Operation: C = C + A × B^T
+# Test: mfmul.h
+# Element-wise Float Multiplication (FP16)
+# Operation: md = ms2 op ms1
 
-# Setup tile dimensions
+# Setup tile dimensions (4x4)
 msettilemi 4
 msettileki 4
 msettileni 4
 
-# Load Matrix A into tr2
-mlbe8 tr2, (x7), x8
-
-# Load Matrix B into tr3
-mlbe8 tr3, (x9), x8
-
-# Perform matrix multiply-accumulate
-mmaccsu.w.b acc1, tr2, tr3
+# Perform element-wise operation
+mfmul.h acc1, acc3, acc2
