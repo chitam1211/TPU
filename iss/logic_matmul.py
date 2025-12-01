@@ -32,7 +32,7 @@ class MatmulLogic:
         d_size = instruction[20:22] # bits 11-10
         ms1_idx = int(instruction[14:17], 2)
         ms2_idx = int(instruction[9:12], 2)
-        md_idx = int(instruction[22:25], 2) - 4 # (acc0-3)
+        md_idx = int(instruction[22:25], 2)  # acc0-3 are encoded as 0-3, NOT 4-7!
         tr_source1_name = f"tr{ms1_idx}"; tr_source2_name = f"tr{ms2_idx}"; acc_dest_name = f"acc{md_idx}"
         
         # 2. Xác định các thuộc tính & Hàm chuyển đổi (Converters)
@@ -214,12 +214,12 @@ class MatmulLogic:
 
         # Đọc mảng đầy đủ từ RAM
         if is_float_op:
-            mat_A_full = self.tr_float[ms1_idx]
-            mat_B_full = self.tr_float[ms2_idx]
+            mat_A_full = self.get_matrix_reg_float(ms1_idx)
+            mat_B_full = self.get_matrix_reg_float(ms2_idx)
             mat_C_old = self.acc_float[md_idx]
         else:
-            mat_A_full = self.tr_int[ms1_idx]
-            mat_B_full = self.tr_int[ms2_idx]
+            mat_A_full = self.get_matrix_reg_int(ms1_idx)
+            mat_B_full = self.get_matrix_reg_int(ms2_idx)
             mat_C_old = self.acc_int[md_idx]
         
         # --- FIX for FP8: Load stores INT8 values, need to convert to FP8 float ---
@@ -229,8 +229,8 @@ class MatmulLogic:
             converter = bits_to_float8_e5m2 if instr_name == "mfmacc.bf16.e5" else bits_to_float8_e4m3
             
             # Read from tr_int instead of tr_float
-            mat_A_int = self.tr_int[ms1_idx]
-            mat_B_int = self.tr_int[ms2_idx]
+            mat_A_int = self.get_matrix_reg_int(ms1_idx)
+            mat_B_int = self.get_matrix_reg_int(ms2_idx)
             
             # Convert to float values
             mat_A_full = [[converter(mat_A_int[i][j] & 0xFF) for j in range(K)] for i in range(M)]

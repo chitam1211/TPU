@@ -36,11 +36,11 @@ TEST_CASES = [
     {
         'name': 'mfmacc.s',
         'description': 'Float32 Matrix Multiply-Accumulate (FP32×FP32→FP32)',
-        'instr': 'mfmacc.s acc0, tr0, tr1',
+        'instr': 'mfmacc.s acc0, tr4, tr5',
         'acc_reg': 0,
         'acc_initial': 10.0,
-        'tr_a_reg': 0,
-        'tr_b_reg': 1,
+        'tr_a_reg': 4,
+        'tr_b_reg': 5,
         'data_type': 'float32',
         'acc_type': 'float32',
         'is_float': True,
@@ -48,11 +48,11 @@ TEST_CASES = [
     {
         'name': 'mfmacc.h',
         'description': 'Float16 Matrix Multiply-Accumulate (FP16×FP16→FP16)',
-        'instr': 'mfmacc.h acc1, tr0, tr1',
+        'instr': 'mfmacc.h acc1, tr4, tr5',
         'acc_reg': 1,
         'acc_initial': 5.0,
-        'tr_a_reg': 0,
-        'tr_b_reg': 1,
+        'tr_a_reg': 4,
+        'tr_b_reg': 5,
         'data_type': 'float16',
         'acc_type': 'float16',
         'is_float': True,
@@ -60,11 +60,11 @@ TEST_CASES = [
     {
         'name': 'mfmacc.s.h',
         'description': 'FP16→FP32 Widening Multiply-Accumulate (FP16×FP16→FP32)',
-        'instr': 'mfmacc.s.h acc2, tr0, tr1',
+        'instr': 'mfmacc.s.h acc2, tr4, tr5',
         'acc_reg': 2,
         'acc_initial': 5.0,
-        'tr_a_reg': 0,
-        'tr_b_reg': 1,
+        'tr_a_reg': 4,
+        'tr_b_reg': 5,
         'data_type': 'float16',
         'acc_type': 'float32',
         'is_float': True,
@@ -72,11 +72,11 @@ TEST_CASES = [
     {
         'name': 'mfmacc.s.bf16',
         'description': 'BF16→FP32 Widening Multiply-Accumulate (BF16×BF16→FP32)',
-        'instr': 'mfmacc.s.bf16 acc3, tr0, tr1',
+        'instr': 'mfmacc.s.bf16 acc3, tr4, tr5',
         'acc_reg': 3,
         'acc_initial': 5.0,
-        'tr_a_reg': 0,
-        'tr_b_reg': 1,
+        'tr_a_reg': 4,
+        'tr_b_reg': 5,
         'data_type': 'bfloat16',
         'acc_type': 'float32',
         'is_float': True,
@@ -84,35 +84,37 @@ TEST_CASES = [
     {
         'name': 'mfmacc.bf16.e5',
         'description': 'FP8(E5M2)→BF16 Multiply-Accumulate',
-        'instr': 'mfmacc.bf16.e5 acc2, tr2, tr3',
+        'instr': 'mfmacc.bf16.e5 acc2, tr6, tr7',
         'acc_reg': 2,
         'acc_initial': 5.0,
-        'tr_a_reg': 2,
-        'tr_b_reg': 3,
+        'tr_a_reg': 6,
+        'tr_b_reg': 7,
         'data_type': 'fp8_e5m2',
         'acc_type': 'bfloat16',
         'is_float': True,
+        'tr_uses_int_storage': True,  # FP8 loaded into tr_int
     },
     {
         'name': 'mfmacc.bf16.e4',
         'description': 'FP8(E4M3)→BF16 Multiply-Accumulate',
-        'instr': 'mfmacc.bf16.e4 acc3, tr2, tr3',
+        'instr': 'mfmacc.bf16.e4 acc3, tr6, tr7',
         'acc_reg': 3,
         'acc_initial': 5.0,
-        'tr_a_reg': 2,
-        'tr_b_reg': 3,
+        'tr_a_reg': 6,
+        'tr_b_reg': 7,
         'data_type': 'fp8_e4m3',
         'acc_type': 'bfloat16',
         'is_float': True,
+        'tr_uses_int_storage': True,  # FP8 loaded into tr_int
     },
     {
         'name': 'mmacc.w.b',
         'description': 'INT8 Signed×Signed Matrix Multiply-Accumulate (s×s→INT32)',
-        'instr': 'mmacc.w.b acc2, tr2, tr3',
+        'instr': 'mmacc.w.b acc2, tr6, tr7',
         'acc_reg': 2,
         'acc_initial': 100,
-        'tr_a_reg': 2,
-        'tr_b_reg': 3,
+        'tr_a_reg': 6,
+        'tr_b_reg': 7,
         'data_type': 'int8',
         'acc_type': 'int32',
         'is_float': False,
@@ -120,11 +122,11 @@ TEST_CASES = [
     {
         'name': 'mmaccu.w.b',
         'description': 'UINT8 Unsigned×Unsigned Matrix Multiply-Accumulate (u×u→INT32)',
-        'instr': 'mmaccu.w.b acc3, tr2, tr3',
+        'instr': 'mmaccu.w.b acc3, tr6, tr7',
         'acc_reg': 3,
         'acc_initial': 100,
-        'tr_a_reg': 2,
-        'tr_b_reg': 3,
+        'tr_a_reg': 6,
+        'tr_b_reg': 7,
         'data_type': 'uint8',
         'acc_type': 'int32',
         'is_float': False,
@@ -132,11 +134,11 @@ TEST_CASES = [
     {
         'name': 'mmaccus.w.b',
         'description': 'Mixed UINT8×INT8 Matrix Multiply-Accumulate (u×s→INT32)',
-        'instr': 'mmaccus.w.b acc0, tr2, tr3',
+        'instr': 'mmaccus.w.b acc0, tr6, tr7',
         'acc_reg': 0,
         'acc_initial': 100,
-        'tr_a_reg': 2,
-        'tr_b_reg': 3,
+        'tr_a_reg': 6,
+        'tr_b_reg': 7,
         'data_type': 'uint8',
         'acc_type': 'int32',
         'is_float': False,
@@ -144,11 +146,11 @@ TEST_CASES = [
     {
         'name': 'mmaccsu.w.b',
         'description': 'Mixed INT8×UINT8 Matrix Multiply-Accumulate (s×u→INT32)',
-        'instr': 'mmaccsu.w.b acc1, tr2, tr3',
+        'instr': 'mmaccsu.w.b acc1, tr6, tr7',
         'acc_reg': 1,
         'acc_initial': 100,
-        'tr_a_reg': 2,
-        'tr_b_reg': 3,
+        'tr_a_reg': 6,
+        'tr_b_reg': 7,
         'data_type': 'int8',
         'acc_type': 'int32',
         'is_float': False,
@@ -631,6 +633,7 @@ def reset_accumulator(test_info):
         acc_file = iss_dir / 'acc.txt'
     
     if not acc_file.exists():
+        print(f"  [WARNING] {acc_file} does not exist!")
         return
     
     # Read current file
@@ -642,10 +645,14 @@ def reset_accumulator(test_info):
     initial_val = test_info['acc_initial']
     new_lines = []
     in_target = False
+    rows_reset = 0
     
     for line in lines:
         if f'{acc_reg}:' in line:
             in_target = True
+            new_lines.append(line)
+        elif in_target and line.strip().startswith('(Destination'):
+            # Keep the destination type line
             new_lines.append(line)
         elif in_target and line.strip().startswith('Row'):
             # Reset this row to initial values (4x4 matrix)
@@ -659,12 +666,14 @@ def reset_accumulator(test_info):
                 bits = struct.unpack('I', struct.pack('f', initial_val))[0]
                 bits_str = ', '.join([str(bits)] * 4)
                 new_lines.append(f"  Row {row_num}: {row_data} ({bits_str})\n")
+                rows_reset += 1
             else:
                 # Int format: "Row 0: 100 100 100 100 (100, 100, 100, 100)"
                 val_str = str(int(initial_val))
                 row_data = ' '.join([val_str] * 4)
                 vals_str = ', '.join([val_str] * 4)
                 new_lines.append(f"  Row {row_num}: {row_data} ({vals_str})\n")
+                rows_reset += 1
         elif in_target and any(f'acc{i}:' in line for i in range(4)):
             # Reached next accumulator
             in_target = False
@@ -677,6 +686,9 @@ def reset_accumulator(test_info):
         f.writelines(new_lines)
         f.flush()
         os.fsync(f.fileno())
+    
+    if rows_reset != 4:
+        print(f"  [WARNING] Only reset {rows_reset}/4 rows for {acc_reg}")
 
 
 def create_assembly_for_test(test_info):
@@ -901,7 +913,10 @@ def display_results(test_info):
     iss_dir = SCRIPT_DIR
     
     # Display tile registers (A and B matrices)
-    if test_info['is_float']:
+    # FP8 data is stored in tr_int (matrix.txt) even though acc is float
+    if test_info.get('tr_uses_int_storage', False):
+        tr_file = iss_dir / 'matrix.txt'
+    elif test_info['is_float']:
         tr_file = iss_dir / 'matrix_float.txt'
     else:
         tr_file = iss_dir / 'matrix.txt'
@@ -915,6 +930,9 @@ def display_results(test_info):
             show_regs = [f"tr{test_info['tr_a_reg']}", f"tr{test_info['tr_b_reg']}"]
             
             for line in lines:
+                # Check if this is a register label line
+                is_reg_line = any(f'tr{i}:' in line for i in range(8))
+                
                 # Check for register labels
                 for r in show_regs:
                     if f'{r}:' in line:
@@ -922,8 +940,12 @@ def display_results(test_info):
                         print(f"  {line.strip()}")
                         break
                 else:
-                    if current_reg in show_regs and line.strip().startswith('Row'):
+                    # If we're in a register we want to show
+                    if current_reg and line.strip().startswith('Row'):
                         print(f"    {line.strip()}")
+                    # Stop if we hit a different register
+                    elif current_reg and is_reg_line:
+                        current_reg = None
     
     # Display accumulator result
     if test_info['is_float']:
@@ -939,11 +961,20 @@ def display_results(test_info):
             acc_reg = f"acc{test_info['acc_reg']}"
             in_target = False
             
+            # Print type annotation first
+            if test_info['is_float']:
+                print(f"  {acc_reg}:")
+                print(f"    (Destination: {test_info['acc_type'].upper()}, 32-bit)")
+            else:
+                print(f"  {acc_reg}:")
+                print(f"    (Destination: INT32, 32-bit)")
+            
             for line in lines:
                 if f'{acc_reg}:' in line:
                     in_target = True
-                    print(f"  {line.strip()}")
-                elif in_target and (line.strip().startswith('Row') or line.strip().startswith('(')):
+                    # Skip the register label since we already printed it
+                    continue
+                elif in_target and line.strip().startswith('Row'):
                     print(f"    {line.strip()}")
                 elif in_target and any(f'acc{i}:' in line for i in range(4)):
                     break

@@ -154,9 +154,8 @@ class LoadStoreLogic:
         
         # mlae8/16/32 / msae8/16/32 (Matrix A, non-transposed)
         if func4 == "0000":
-            if reg_idx > 3: raise ValueError("Invalid register for mlae/msae (must be tr0-tr3)")
             rows, cols = M, K
-            target_reg = self.tr_float[reg_idx] if is_float else self.tr_int[reg_idx]
+            target_reg = self.get_matrix_reg_float(reg_idx) if is_float else self.get_matrix_reg_int(reg_idx)
             
             # Instruction name based on d_size
             instr_suffix = {
@@ -183,9 +182,8 @@ class LoadStoreLogic:
 
         # mlbe8/16/32 / msbe8/16/32 (Matrix B, non-transposed)
         elif func4 == "0001":
-            if reg_idx > 3: raise ValueError("Invalid register for mlbe/msbe (must be tr0-tr3)")
-            rows, cols = N, K
-            target_reg = self.tr_float[reg_idx] if is_float else self.tr_int[reg_idx]
+            rows, cols = K, N  # Matrix B is K×N for C = A×B^T
+            target_reg = self.get_matrix_reg_float(reg_idx) if is_float else self.get_matrix_reg_int(reg_idx)
             
             instr_suffix = {
                 "00": "8",
@@ -194,7 +192,7 @@ class LoadStoreLogic:
             }[d_size_str]
             instr_name = f"{'mlb' if is_load else 'msb'}e{instr_suffix}"
             
-            print(f"  -> Executing {instr_name} (N={N}, K={K}, element_size={eew}-bit)")
+            print(f"  -> Executing {instr_name} (K={K}, N={N}, element_size={eew}-bit)")
             for i in range(rows):
                 for j in range(cols):
                     mem_addr = base_addr + (i * row_stride) + (j * num_bytes)
@@ -209,9 +207,8 @@ class LoadStoreLogic:
 
         # mlce8/16/32 / msce8/16/32 (Matrix C, non-transposed)
         elif func4 == "0010":
-            if reg_idx < 4: raise ValueError("Invalid register for mlce/msce (must be acc0-acc3)")
             rows, cols = M, N
-            target_reg = self.acc_float[reg_idx - 4] if is_float else self.acc_int[reg_idx - 4]
+            target_reg = self.get_matrix_reg_float(reg_idx) if is_float else self.get_matrix_reg_int(reg_idx)
             
             instr_suffix = {
                 "00": "8",
@@ -236,9 +233,8 @@ class LoadStoreLogic:
 
         # mlate8/16/32 / msate8/16/32 (Matrix A, Transposed)
         elif func4 == "0100":
-            if reg_idx > 3: raise ValueError("Invalid register for mlate/msate (must be tr0-tr3)")
             rows, cols = M, K # Register dimensions (M x K)
-            target_reg = self.tr_float[reg_idx] if is_float else self.tr_int[reg_idx]
+            target_reg = self.get_matrix_reg_float(reg_idx) if is_float else self.get_matrix_reg_int(reg_idx)
             
             instr_suffix = {
                 "00": "8",
@@ -261,11 +257,10 @@ class LoadStoreLogic:
                         byte_data = self._value_to_bytes(val, format_type)
                         self.memory.write(mem_addr, byte_data)
 
-        # mlbte8/16/32 / msbte8/16/32 (Matrix B, Transposed)
-        elif func4 == "0101":
-            if reg_idx > 3: raise ValueError("Invalid register for mlbte/msbte (must be tr0-tr3)")
+        # mlbte8/16/32 / msbte8/16/32 (Matrix B^T - transposed)
+        elif func4 == "0011":
             rows, cols = N, K
-            target_reg = self.tr_float[reg_idx] if is_float else self.tr_int[reg_idx]
+            target_reg = self.get_matrix_reg_float(reg_idx) if is_float else self.get_matrix_reg_int(reg_idx)
             
             instr_suffix = {
                 "00": "8",
@@ -288,8 +283,7 @@ class LoadStoreLogic:
                         self.memory.write(mem_addr, byte_data)
 
         # mlcte8/16/32 / mscte8/16/32 (Matrix C, Transposed)
-        elif func4 == "0110":
-            if reg_idx < 4: raise ValueError("Invalid register for mlcte/mscte (must be acc0-acc3)")
+        elif func4 == "0101":
             rows, cols = M, N
             target_reg = self.acc_float[reg_idx - 4] if is_float else self.acc_int[reg_idx - 4]
             

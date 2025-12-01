@@ -33,6 +33,39 @@ class ElementwiseLogic:
         - rownum: int - Number of rows in matrix
         - elements_per_row_tr: int - Elements per row in TR
     """
+    
+    def _get_register_storage(self, reg_idx, is_float):
+        """Get the appropriate register storage (acc or tr) based on index.
+        
+        Args:
+            reg_idx: Register index (0-7)
+                0-3: acc0-acc3 (also aliased as tr0-tr3)
+                4-7: tr4-tr7 (pure tile registers)
+            is_float: True for float operations, False for integer
+            
+        Returns:
+            Tuple of (storage, actual_idx) where:
+            - storage: Reference to acc_int/acc_float or tr_int/tr_float
+            - actual_idx: Index within that storage (always 0-3)
+        """
+        if reg_idx < 4:
+            # Accumulator registers (acc0-acc3, aliased as tr0-tr3)
+            storage = self.acc_float if is_float else self.acc_int
+            return storage, reg_idx
+        else:
+            # Tile registers (tr4-tr7 map to tr_int[0-3])
+            storage = self.tr_float if is_float else self.tr_int
+            return storage, reg_idx - 4  # tr4→0, tr5→1, tr6→2, tr7→3
+    
+    def _read_register_element(self, reg_idx, row, col, is_float):
+        """Read a single element from register (acc or tr)."""
+        storage, idx = self._get_register_storage(reg_idx, is_float)
+        return storage[idx][row][col]
+    
+    def _write_register_element(self, reg_idx, row, col, value, is_float):
+        """Write a single element to register (acc or tr)."""
+        storage, idx = self._get_register_storage(reg_idx, is_float)
+        storage[idx][row][col] = value
 
     def _execute_ew_integer(self, instruction, func4, ctrl, md_idx, ms1_idx, ms2_idx):
         """Thực thi Nhóm 5.5.1: Lệnh số học số nguyên (uop=01)."""
@@ -48,19 +81,19 @@ class ElementwiseLogic:
         is_matrix_matrix = (ctrl == "111")
         vector_row_idx = int(ctrl, 2) # Dùng cho chế độ .mv.i 
 
-        print(f"    - Executing EW-Integer (M={M}, N={N})")
+        print(f"    - Executing EW-Integer (M={M}, N={N}, md={md_idx}, ms1={ms1_idx}, ms2={ms2_idx})")
 
         # Lặp qua từng phần tử của tile (M x N)
         for i in range(M):
             for j in range(N):
-                # Lấy toán hạng 2 (luôn là matrix)
-                val2 = self.acc_int[ms2_idx][i][j]
+                # Lấy toán hạng 2 (luôn là matrix) - supports both acc and tr
+                val2 = self._read_register_element(ms2_idx, i, j, is_float=False)
                 
-                # Lấy toán hạng 1 (matrix hoặc vector)
+                # Lấy toán hạng 1 (matrix hoặc vector) - supports both acc and tr
                 if is_matrix_matrix:
-                    val1 = self.acc_int[ms1_idx][i][j]
+                    val1 = self._read_register_element(ms1_idx, i, j, is_float=False)
                 else:
-                    val1 = self.acc_int[ms1_idx][vector_row_idx][j] # 
+                    val1 = self._read_register_element(ms1_idx, vector_row_idx, j, is_float=False) # 
 
                 # Thực hiện phép toán dựa trên func4
                 # Semantics: md = ms2 op ms1 (val2 op val1)
@@ -106,8 +139,12 @@ class ElementwiseLogic:
                         res = INT32_MIN
                         self.csr_ref.write('xmsat', 1)
                 
-                # Ghi kết quả (wrap-around nếu không bão hòa)
-                self.acc_int[md_idx][i][j] = res & 0xFFFFFFFF
+                # Ghi kết quả (wrap-around nếu không bão hòa) - supports both acc and tr
+                result_val = res & 0xFFFFFFFF
+                self._write_register_element(md_idx, i, j, result_val, is_float=False)
+                # Debug: print first write for tile registers
+                if md_idx >= 4 and i == 0 and j == 0:
+                    print(f"    [Debug] Writing tr{md_idx}[0][0] = {result_val}")
 
 
     def _execute_ew_float(self, instruction, func4, ctrl, md_idx, ms1_idx, ms2_idx, s_size, d_size):
@@ -136,27 +173,28 @@ class ElementwiseLogic:
             is_matrix_matrix = (ctrl == "111") 
             vector_row_idx = int(ctrl, 2) % ROWNUM 
 
-            print(f"    - Executing EW-Float (M={M}, N={N}, Precision={s_size})")
+            print(f"    - Executing EW-Float (M={M}, N={N}, Precision={s_size}, md={md_idx}, ms1={ms1_idx}, ms2={ms2_idx})")
 
             # --- 3. Vòng lặp tính toán ---
             for i in range(M):
                 for j in range(N):
-                    # Đọc giá trị đầy đủ (Python float 64-bit) từ RAM
-                    val2_full = self.acc_float[ms2_idx][i][j]
+                    # Đọc giá trị đầy đủ (Python float 64-bit) - supports both acc and tr
+                    val2_full = self._read_register_element(ms2_idx, i, j, is_float=True)
                     
                     if is_matrix_matrix:
-                        val1_full = self.acc_float[ms1_idx][i][j]
+                        val1_full = self._read_register_element(ms1_idx, i, j, is_float=True)
                     else:
                         # Logic matrix-vector: ms2[i,j] op ms1[vector_row_idx, j]
-                        val1_full = self.acc_float[ms1_idx][vector_row_idx][j] 
+                        val1_full = self._read_register_element(ms1_idx, vector_row_idx, j, is_float=True)
 
                     # --- 4. Mô phỏng độ chính xác (Precision Simulation) ---
                     # Chuyển đổi các toán hạng nguồn về đúng độ chính xác (fp16/fp32)
                     val1_quantized = bits_to_float(float_to_bits(val1_full))
                     val2_quantized = bits_to_float(float_to_bits(val2_full))
                     
-                    # Đọc giá trị ACC cũ (md) và cũng làm tròn nó
-                    c_old_quantized = bits_to_float(float_to_bits(self.acc_float[md_idx][i][j]))
+                    # Đọc giá trị cũ (md) và cũng làm tròn nó - supports both acc and tr
+                    md_old_val = self._read_register_element(md_idx, i, j, is_float=True)
+                    c_old_quantized = bits_to_float(float_to_bits(md_old_val))
                     
                     res_full = 0.0
                     
@@ -177,9 +215,9 @@ class ElementwiseLogic:
                         continue
                     
                     # --- 6. Ghi kết quả (Làm tròn về độ chính xác ĐÍCH) ---
-                    # Phép toán float-point được làm tròn sau khi cộng vào acc 
+                    # Phép toán float-point được làm tròn sau khi cộng vào destination
                     res_quantized = bits_to_float(float_to_bits(res_full))
-                    self.acc_float[md_idx][i][j] = res_quantized
+                    self._write_register_element(md_idx, i, j, res_quantized, is_float=True)
 
     # --- HÀM DISPATCHER CHÍNH ---
     def execute_element_wise(self, instruction):
@@ -196,16 +234,10 @@ class ElementwiseLogic:
         d_size_str = instruction[20:22]
         md_bin     = instruction[22:25]
         
-        # Chuyển đổi index. Tất cả EW đều dùng acc register 
-        try:
-            md_idx  = int(md_bin, 2) - 4
-            ms1_idx = int(ms1_bin, 2) - 4
-            ms2_idx = int(ms2_bin, 2) - 4
-            if (md_idx < 0 or ms1_idx < 0 or ms2_idx < 0):
-                raise IndexError()
-        except (IndexError, ValueError):
-             print(f"  [Error] Element-Wise instruction requires acc registers (4-7).")
-             return
+        # Chuyển đổi index - support both acc (0-3) and tr (4-7) registers
+        md_idx  = int(md_bin, 2)
+        ms1_idx = int(ms1_bin, 2)
+        ms2_idx = int(ms2_bin, 2)
 
         # --- 1.5 Reject unsupported sizes (64-bit) ---
         if s_size_str == "11" or d_size_str == "11":

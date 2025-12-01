@@ -1,25 +1,25 @@
---- Tile Registers (tr0-tr3) (Integer Only)---
+--- Tile Registers (tr4-tr7) (Integer Only)---
 
-tr0:
+tr4:
+  Row 0: 20 20 20 20
+  Row 1: 20 20 20 20
+  Row 2: 20 20 20 20
+  Row 3: 20 20 20 20
+
+tr5:
+  Row 0: 10 10 10 10
+  Row 1: 10 10 10 10
+  Row 2: 10 10 10 10
+  Row 3: 10 10 10 10
+
+tr6:
+  Row 0: 30 30 30 30
+  Row 1: 30 30 30 30
+  Row 2: 30 30 30 30
+  Row 3: 30 30 30 30
+
+tr7:
   Row 0: 0 0 0 0
   Row 1: 0 0 0 0
   Row 2: 0 0 0 0
   Row 3: 0 0 0 0
-
-tr1:
-  Row 0: 0 0 0 0
-  Row 1: 0 0 0 0
-  Row 2: 0 0 0 0
-  Row 3: 0 0 0 0
-
-tr2:
-  Row 0: 1 2 3 4
-  Row 1: 5 6 7 8
-  Row 2: -1 -2 -3 -4
-  Row 3: -5 -6 -7 -8
-
-tr3:
-  Row 0: 1 0 0 0
-  Row 1: 0 1 0 0
-  Row 2: 0 0 1 0
-  Row 3: 0 0 0 1

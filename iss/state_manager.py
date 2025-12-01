@@ -64,47 +64,53 @@ def float_to_bits8_e5m2(f):
 # LOAD FUNCTIONS (READ FROM FILES INTO SIMULATOR RAM)
 # =============================================================================
 
-def _load_matrix_file(filepath, reg_array, is_float_file):
-    """Helper function to read matrix.txt/acc.txt files into RAM array."""
+def _load_matrix_file(filepath, reg_array, is_float_file, start_idx=0):
+    """Helper function to read matrix.txt/acc.txt files into RAM array.
+    Args:
+        start_idx: Offset for file register index (e.g., tr4 in file maps to reg_array[0] when start_idx=4)
+    """
     try:
         with open(filepath, "r") as f:
             lines = f.readlines()
-            current_reg_index = -1
+            current_file_reg_index = -1  # Index from file (e.g., 4 for tr4)
             current_row_index = 0
             
             for line in lines:
-                # Find register name line, e.g. "tr0:" or "acc1:"
+                # Find register name line, e.g. "tr0:" or "acc1:" or "tr4:"
                 match = re.search(r"^(tr|acc)(\d):", line.strip())
                 if match:
-                    current_reg_index = int(match.group(2))
+                    current_file_reg_index = int(match.group(2))
                     current_row_index = 0
                     continue # Move to next line
                 
                 # If within a register block and encounter "Row" line
-                if current_reg_index != -1 and line.strip().startswith("Row"):
+                if current_file_reg_index != -1 and line.strip().startswith("Row"):
                     if current_row_index < ROWNUM:
-                        data_part = line.split(':')[1].strip()
-                        # Always split at '(' to get only the numeric values part
-                        # Format: "Row 0: 1 2 3 4 (1, 2, 3, 4)" or "Row 0: 1.0 2.0 3.0 4.0 (1.0, 2.0, 3.0, 4.0)"
-                        values_str = data_part.split('(')[0].strip()
-                        
-                        # Convert read values
-                        if values_str:
-                            try:
-                                if is_float_file:
-                                    values = [float(v) for v in values_str.split()]
-                                else:
-                                    values = [int(v) for v in values_str.split()]
-                                
-                                # Write to RAM array (Simulator object)
-                                for c in range(min(ELEMENTS_PER_ROW_TR, len(values))):
-                                    reg_array[current_reg_index][current_row_index][c] = values[c]
-                            except ValueError as e:
-                                print(f"  [Warning] Skipping invalid line in {filepath}: {line.strip()}. Error: {e}")
+                        # Calculate array index by subtracting start_idx
+                        # E.g., tr4 (file_idx=4) - start_idx=4 = array_idx=0
+                        array_index = current_file_reg_index - start_idx
+                        if 0 <= array_index < len(reg_array):
+                            data_part = line.split(':')[1].strip()
+                            # Always split at '(' to get only the numeric values part
+                            values_str = data_part.split('(')[0].strip()
+                            
+                            # Convert read values
+                            if values_str:
+                                try:
+                                    if is_float_file:
+                                        values = [float(v) for v in values_str.split()]
+                                    else:
+                                        values = [int(v) for v in values_str.split()]
+                                    
+                                    # Write to RAM array (Simulator object)
+                                    for c in range(min(ELEMENTS_PER_ROW_TR, len(values))):
+                                        reg_array[array_index][current_row_index][c] = values[c]
+                                except ValueError as e:
+                                    print(f"  [Warning] Skipping invalid line in {filepath}: {line.strip()}. Error: {e}")
                         
                         current_row_index += 1
                         if current_row_index >= ROWNUM:
-                            current_reg_index = -1 # End this register block
+                            current_file_reg_index = -1 # End this register block
                     
     except FileNotFoundError:
         print(f"  [Warning] File {filepath} not found. Using default value 0.")
@@ -134,7 +140,8 @@ def load_state_from_files(sim):
         for filename in ["config.txt", "status.txt"]:
              with open(os.path.join(script_dir, filename), "r") as f:
                 for line in f:
-                    match = re.search(r"(\w+)\s*\(.+\):\s*(0x[0-9a-fA-F]+)", line)
+                    # Support both formats: "name: 0xVAL" and "name (alias): 0xVAL"
+                    match = re.search(r"(\w+)\s*(?:\(.+\))?\s*:\s*(0x[0-9a-fA-F]+)", line)
                     if match:
                         name, val = match.group(1).strip(), int(match.group(2), 16)
                         sim.csr.write(name, val) # Write to CSR RAM
@@ -142,10 +149,11 @@ def load_state_from_files(sim):
     except Exception as e: print(f"  [Warning] Could not load CSRs. {e}")
     
     # 3. Load 4 matrix files
-    _load_matrix_file(os.path.join(script_dir, "matrix.txt"), sim.matrix_accelerator.tr_int, is_float_file=False)
-    _load_matrix_file(os.path.join(script_dir, "acc.txt"), sim.matrix_accelerator.acc_int, is_float_file=False)
-    _load_matrix_file(os.path.join(script_dir, "matrix_float.txt"), sim.matrix_accelerator.tr_float, is_float_file=True)
-    _load_matrix_file(os.path.join(script_dir, "acc_float.txt"), sim.matrix_accelerator.acc_float, is_float_file=True)
+    # matrix.txt contains tr4-tr7 (file idx 4-7, array idx 0-3)
+    _load_matrix_file(os.path.join(script_dir, "matrix.txt"), sim.matrix_accelerator.tr_int, is_float_file=False, start_idx=4)
+    _load_matrix_file(os.path.join(script_dir, "acc.txt"), sim.matrix_accelerator.acc_int, is_float_file=False, start_idx=0)
+    _load_matrix_file(os.path.join(script_dir, "matrix_float.txt"), sim.matrix_accelerator.tr_float, is_float_file=True, start_idx=4)
+    _load_matrix_file(os.path.join(script_dir, "acc_float.txt"), sim.matrix_accelerator.acc_float, is_float_file=True, start_idx=0)
     print("  Matrix registers loaded.")
     
     # 4. Load Memory from memory.txt
@@ -180,13 +188,16 @@ def load_state_from_files(sim):
 # SAVE FUNCTIONS (WRITE FROM SIMULATOR RAM TO FILES)
 # =============================================================================
 
-def _save_matrix_file(filepath, header, reg_prefix, reg_array, is_float_file, bits_converter_func=float_to_bits32):
-    """Common helper function to write matrix/acc files."""
+def _save_matrix_file(filepath, header, reg_prefix, reg_array, is_float_file, bits_converter_func=float_to_bits32, start_idx=0):
+    """Common helper function to write matrix/acc files.
+    Args:
+        start_idx: Starting index for register naming (e.g., 4 for tr4-tr7)
+    """
     try:
         with open(filepath, "w") as f:
             f.write(f"{header}\n")
-            for i in range(len(reg_array)): # Loop through 4 registers
-                reg_name = f"{reg_prefix}{i}"
+            for i in range(len(reg_array)): # Loop through registers
+                reg_name = f"{reg_prefix}{i + start_idx}"  # Add start_idx for correct naming
                 f.write(f"\n{reg_name}:\n")
                 for r in range(ROWNUM): # Loop through 4 rows
                     row_data = reg_array[i][r]
@@ -258,10 +269,11 @@ def save_state_to_files(sim):
     except IOError as e: print(f"  [Error] Error writing status.txt: {e}")
 
     
-    # 3. Ghi 4 file Ma trận (PHẦN NÀY ĐÃ ĐÚNG)
+    # 3. Ghi 4 file Ma trận (ONLY tr4-tr7 - Pure Tile Registers)
+    # SPECS: tr0-tr3 = acc0-acc3 (alias), chỉ tr4-tr7 là thanh ghi tile riêng biệt
     _save_matrix_file(os.path.join(script_dir, "matrix.txt"), 
-                    "--- Tile Registers (tr0-tr3) (Integer Only)---", "tr", 
-                    sim.matrix_accelerator.tr_int, is_float_file=False)
+                    "--- Tile Registers (tr4-tr7) (Integer Only)---", "tr", 
+                    sim.matrix_accelerator.tr_int, is_float_file=False, start_idx=4)
 
     # --- (THAY THẾ) LOGIC GHI ACC.TXT (INTEGER) ---
     try:
@@ -329,10 +341,11 @@ def save_state_to_files(sim):
         print(f"  [Error] Could not write to acc.txt: {e}")
     # --- KẾT THÚC THAY THẾ ACC.TXT ---
     
+    # Save matrix_float.txt (ONLY tr4-tr7)
     _save_matrix_file(os.path.join(script_dir, "matrix_float.txt"), 
-                    "--- Tile Registers (tr0-tr3) (Floating-Point | 32-bit representation)---", "tr", 
+                    "--- Tile Registers (tr4-tr7) (Floating-Point | 32-bit representation)---", "tr", 
                     sim.matrix_accelerator.tr_float, is_float_file=True, 
-                    bits_converter_func=float_to_bits32)
+                    bits_converter_func=float_to_bits32, start_idx=4)
 
 # --- (THAY THẾ) LOGIC GHI ACC_FLOAT.TXT ---
     try:

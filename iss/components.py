@@ -60,17 +60,55 @@ class MatrixAccelerator(ConfigLogic, MatmulLogic, LoadStoreLogic, ElementwiseLog
         self.elements_per_row_tr = ELEMENTS_PER_ROW_TR
         self.elements_per_row_acc = ELEMENTS_PER_ROW_TR  # ACC cũng có cùng kích thước
         
-        # Khởi tạo các thanh ghi tile/acc trong RAM
-        # Cấu trúc: 4 thanh ghi [4 hàng [4 cột]]
-        self.tr_int = [[[0]*ELEMENTS_PER_ROW_TR for _ in range(ROWNUM)] for _ in range(4)]
+        # Khởi tạo các thanh ghi trong RAM
+        # SPECS: Chỉ có 8 thanh ghi vật lý:
+        #   - acc0-acc3 (register 0-3): Accumulator registers
+        #   - tr4-tr7 (register 4-7): Pure tile registers
+        #   - tr0-tr3 là ALIAS của acc0-acc3, không phải bộ nhớ riêng
+        
+        # Accumulator registers: acc0-acc3 (aka tr0-tr3)
         self.acc_int = [[[0]*ELEMENTS_PER_ROW_TR for _ in range(ROWNUM)] for _ in range(4)]
-        self.tr_float = [[[0.0]*ELEMENTS_PER_ROW_TR for _ in range(ROWNUM)] for _ in range(4)]
         self.acc_float = [[[0.0]*ELEMENTS_PER_ROW_TR for _ in range(ROWNUM)] for _ in range(4)]
+        
+        # Pure tile registers: tr4-tr7 only (4 registers, not 8)
+        self.tr_int = [[[0]*ELEMENTS_PER_ROW_TR for _ in range(ROWNUM)] for _ in range(4)]
+        self.tr_float = [[[0.0]*ELEMENTS_PER_ROW_TR for _ in range(ROWNUM)] for _ in range(4)]
         
         # Metadata: Lưu destination bit-width cho mỗi accumulator
         # Tách riêng cho int và float vì chúng độc lập
         self.acc_dest_bits_float = [32] * 4  # FP32 by default
         self.acc_dest_bits_int = [32] * 4    # INT32 by default
+    
+    # Helper methods for register access (handles tr0-tr3 aliasing)
+    def get_matrix_reg_int(self, reg_idx):
+        """Get integer matrix register (tr0-tr7)
+        tr0-tr3 maps to acc0-acc3, tr4-tr7 maps to tr_int[0-3]"""
+        if reg_idx < 4:
+            return self.acc_int[reg_idx]  # tr0-tr3 = acc0-acc3
+        else:
+            return self.tr_int[reg_idx - 4]  # tr4-tr7
+    
+    def get_matrix_reg_float(self, reg_idx):
+        """Get float matrix register (tr0-tr7)
+        tr0-tr3 maps to acc0-acc3, tr4-tr7 maps to tr_float[0-3]"""
+        if reg_idx < 4:
+            return self.acc_float[reg_idx]  # tr0-tr3 = acc0-acc3
+        else:
+            return self.tr_float[reg_idx - 4]  # tr4-tr7
+    
+    def set_matrix_reg_int(self, reg_idx, value):
+        """Set integer matrix register (tr0-tr7)"""
+        if reg_idx < 4:
+            self.acc_int[reg_idx] = value
+        else:
+            self.tr_int[reg_idx - 4] = value
+    
+    def set_matrix_reg_float(self, reg_idx, value):
+        """Set float matrix register (tr0-tr7)"""
+        if reg_idx < 4:
+            self.acc_float[reg_idx] = value
+        else:
+            self.tr_float[reg_idx - 4] = value
 
 
 class MainMemory:

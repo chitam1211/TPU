@@ -33,30 +33,34 @@ class MiscLogic:
     # --- HÀM HELPER ĐỂ XỬ LÝ THANH GHI (TR/ACC) ---
 
     def _get_reg_array_by_idx(self, reg_idx, is_float=False):
-        """Helper: Gets the correct register array (tr/acc, int/float) based on a 0-7 index."""
-        if reg_idx < 4: # Tile Register (tr0-tr3)
-            return self.tr_float[reg_idx] if is_float else self.tr_int[reg_idx]
-        else: # Accumulation Register (acc0-acc3)
-            return self.acc_float[reg_idx - 4] if is_float else self.acc_int[reg_idx - 4]
+        """Helper: Gets the correct register array (tr/acc, int/float) based on a 0-7 index.
+        SPECS: tr0-tr3 = acc0-acc3 (alias), tr4-tr7 = pure tile registers"""
+        if reg_idx < 4: # Accumulation Register (acc0-acc3, aka tr0-tr3)
+            return self.acc_float[reg_idx] if is_float else self.acc_int[reg_idx]
+        else: # Tile Register (tr4-tr7)
+            return self.get_matrix_reg_float(reg_idx) if is_float else self.get_matrix_reg_int(reg_idx)
 
     def _get_reg_dims_by_idx(self, reg_idx):
         """Helper: Gets (rows, cols) for a register index 0-7."""
-        if reg_idx < 4: # Tile Register (tr0-tr3)
-            return (self.rownum, self.elements_per_row_tr) 
-        else: # Accumulation Register (acc0-acc3)
+        if reg_idx < 4: # Accumulator Register (acc0-acc3, aka tr0-tr3)
             return (self.rownum, self.elements_per_row_acc)
+        else: # Tile Register (tr4-tr7)
+            return (self.rownum, self.elements_per_row_tr)
     
     def _zero_register(self, reg_idx):
-        """Helper: Zeros out all elements of a given register (both int and float views)."""
+        """Helper: Zeros out all elements of a given register (both int and float views).
+        SPECS: tr0-tr3 = acc0-acc3 (alias), only tr4-tr7 are separate tile registers"""
         # Lấy kích thước vật lý của thanh ghi
         tr_rows, tr_cols = self._get_reg_dims_by_idx(0) # Kích thước TR
         acc_rows, acc_cols = self._get_reg_dims_by_idx(4) # Kích thước ACC
         
-        if reg_idx < 4: # Là trN
-            self.tr_int[reg_idx]   = [[0] * tr_cols for _ in range(tr_rows)]
-            self.tr_float[reg_idx] = [[0.0] * tr_cols for _ in range(tr_rows)]
-        else: # Là accN
+        if reg_idx < 4: # acc0-acc3 (aka tr0-tr3)
+            self.acc_int[reg_idx]   = [[0] * acc_cols for _ in range(acc_rows)]
+            self.acc_float[reg_idx] = [[0.0] * acc_cols for _ in range(acc_rows)]
+        else: # tr4-tr7 only
             idx = reg_idx - 4
+            self.tr_int[idx]   = [[0] * tr_cols for _ in range(tr_rows)]
+            self.tr_float[idx] = [[0.0] * tr_cols for _ in range(tr_rows)]
             self.acc_int[idx]   = [[0] * acc_cols for _ in range(acc_rows)]
             self.acc_float[idx] = [[0.0] * acc_cols for _ in range(acc_rows)]
 
