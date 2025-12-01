@@ -217,14 +217,14 @@ def setup_test_data():
         5: 0x300,   # base addr for mlbe8 (int8 data)
         6: 0x04,    # stride = 4 bytes (4 int8) - used for both load and store
         7: 0x100,   # base addr for mlce32 (column load from float32)
-        8: 0x10,    # stride for mlce32 column
+        8: 0x10,    # stride for mlce32 column (16 bytes per row)
         9: 0x140,   # output address for msae32
         10: 0x10,   # output stride for column operations (msce32/msce8)
         11: 0x240,  # output address for msae16
         12: 0x340,  # output address for msbe8
         13: 0x380,  # output address for msce32
         14: 0x300,  # base addr for mlce8 (column load from int8)
-        15: 0x04,   # stride for mlce8 column
+        15: 0x10,   # stride for mlce8 column (16 bytes per row, not 4!)
         16: 0x3C0,  # output address for msce8
     }
     
@@ -341,46 +341,43 @@ def verify_test(test_info):
     is_column_op = 'mlc' in test_name or 'msc' in test_name
     
     if is_column_op:
-        # Column operations: just verify that data was written
-        # (Input data is in row-major, output is column-major, so direct comparison invalid)
-        col_stride = 0x10  # Column stride is always 0x10 based on GPR setup
+        # Column operations: Matrix C load/store uses row-major in memory
+        # After fix, both input and output are row-major, can compare directly
         
-        # Determine bytes per element
-        if 'c32' in test_name:
-            bytes_per_elem = 4
-        elif 'c8' in test_name:
-            bytes_per_elem = 1
+        # Determine stride and bytes per row
+        if 'ce32' in test_name:
+            stride = 0x10  # Float32: 4 elements × 4 bytes = 16 bytes
+            bytes_per_row = 16
+        elif 'ce8' in test_name:
+            stride = 0x10  # Int8: 16 bytes per row in memory (with padding)
+            bytes_per_row = 4   # But only 4 bytes actually used (4 elements × 1 byte)
         else:
-            bytes_per_elem = 4
+            stride = 0x10
+            bytes_per_row = 16
         
-        # Check that each column has non-zero data
-        all_written = True
-        empty_cols = []
+        # Compare row by row (same as row operations)
+        mismatches = []
+        all_match = True
         
-        for col in range(4):
-            col_base = output_addr + col * col_stride
-            col_has_data = False
+        for row in range(4):
+            in_addr = input_addr + row * stride
+            out_addr = output_addr + row * stride
             
-            for elem in range(4):
-                byte_addr = col_base + elem * bytes_per_elem
-                line_addr = (byte_addr // 16) * 16
-                line = memory_data.get(line_addr, "")
-                
-                if line:
-                    bytes_list = line.split()
-                    offset = byte_addr % 16
-                    if offset < len(bytes_list) and bytes_list[offset] != '00':
-                        col_has_data = True
-                        break
+            input_data = memory_data.get(in_addr, "")
+            output_data = memory_data.get(out_addr, "")
             
-            if not col_has_data:
-                all_written = False
-                empty_cols.append(col)
+            # Get input bytes (only first bytes_per_row)
+            input_bytes = ' '.join(input_data.split()[:bytes_per_row])
+            output_bytes = ' '.join(output_data.split()[:bytes_per_row])
+            
+            if input_bytes != output_bytes:
+                all_match = False
+                mismatches.append(f"Row {row}: Input '{input_bytes}' != Output '{output_bytes}'")
         
-        if all_written:
-            return True, "All columns have data ✓"
+        if all_match:
+            return True, "All rows match ✓"
         else:
-            return False, f"Columns {empty_cols} are empty"
+            return False, "Mismatch found:\n    " + "\n    ".join(mismatches)
     
     else:
         # Row operations: data is stored row-by-row
@@ -451,12 +448,23 @@ def display_results(test_info):
     iss_dir = SCRIPT_DIR
     
     # Display register data
+    # Note: tr0-tr3 are aliases of acc0-acc3, so read from acc files
+    #       tr4-tr7 are pure tile registers, read from matrix files
     if test_info['register_type'] == 'tr':
-        file_name = 'matrix_float.txt' if test_info['is_float'] else 'matrix.txt'
-        reg_name = f"tr{test_info['register_num']}"
+        reg_num = test_info['register_num']
+        if reg_num < 4:
+            # tr0-tr3 alias acc0-acc3
+            file_name = 'acc_float.txt' if test_info['is_float'] else 'acc.txt'
+            actual_reg = f"acc{reg_num}"  # Physical register name
+        else:
+            # tr4-tr7 are pure tile registers
+            file_name = 'matrix_float.txt' if test_info['is_float'] else 'matrix.txt'
+            actual_reg = f"tr{reg_num - 4}"  # tr4→tr0 in matrix file
+        reg_name = f"tr{reg_num} (alias {actual_reg})" if reg_num < 4 else f"tr{reg_num}"
     else:
         file_name = 'acc_float.txt' if test_info['is_float'] else 'acc.txt'
         reg_name = f"acc{test_info['register_num']}"
+        actual_reg = f"acc{test_info['register_num']}"
     
     file_path = iss_dir / file_name
     print(f"\n[Register: {reg_name}] From {file_name}:")
@@ -465,18 +473,18 @@ def display_results(test_info):
         with open(file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
             current_reg = None
+            target_reg = actual_reg + ':'  # e.g., "acc0:" for tr0
+            
             for line in lines:
-                # Check if this is a register label line
-                for r in ['tr0:', 'tr1:', 'tr2:', 'tr3:', 'acc0:', 'acc1:', 'acc2:', 'acc3:']:
-                    if f'{r}' in line:
-                        current_reg = r.replace(':', '')
-                        print(f"  {line.strip()}")  # Print register label
-                        break
-                else:
-                    # Not a register label - check if it's a Row line
-                    if current_reg and line.strip().startswith('Row'):
-                        print(f"  {line.strip()}")
-                    elif current_reg and line.strip().startswith('('):
+                # Check if this is the target register label
+                if target_reg in line:
+                    current_reg = actual_reg
+                    print(f"  {line.strip()}")  # Print register label
+                # Check if we're starting a different register (stop printing)
+                elif current_reg and any(r in line for r in ['tr0:', 'tr1:', 'tr2:', 'tr3:', 'acc0:', 'acc1:', 'acc2:', 'acc3:']) and target_reg not in line:
+                    current_reg = None
+                # Print content if we're in the target register
+                elif current_reg:
                         # Also print metadata lines like "(Destination: ...)"
                         print(f"  {line.strip()}")
     

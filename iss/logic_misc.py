@@ -51,8 +51,8 @@ class MiscLogic:
         """Helper: Zeros out all elements of a given register (both int and float views).
         SPECS: tr0-tr3 = acc0-acc3 (alias), only tr4-tr7 are separate tile registers"""
         # Lấy kích thước vật lý của thanh ghi
-        tr_rows, tr_cols = self._get_reg_dims_by_idx(0) # Kích thước TR
-        acc_rows, acc_cols = self._get_reg_dims_by_idx(4) # Kích thước ACC
+        acc_rows, acc_cols = self._get_reg_dims_by_idx(0) # Kích thước ACC (index 0-3)
+        tr_rows, tr_cols = self._get_reg_dims_by_idx(4)   # Kích thước TR (index 4-7)
         
         if reg_idx < 4: # acc0-acc3 (aka tr0-tr3)
             self.acc_int[reg_idx]   = [[0] * acc_cols for _ in range(acc_rows)]
@@ -61,8 +61,6 @@ class MiscLogic:
             idx = reg_idx - 4
             self.tr_int[idx]   = [[0] * tr_cols for _ in range(tr_rows)]
             self.tr_float[idx] = [[0.0] * tr_cols for _ in range(tr_rows)]
-            self.acc_int[idx]   = [[0] * acc_cols for _ in range(acc_rows)]
-            self.acc_float[idx] = [[0.0] * acc_cols for _ in range(acc_rows)]
 
     # --- CÁC HÀM THỰC THI CON (SUB-EXECUTORS) ---
 

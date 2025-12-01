@@ -1,11 +1,13 @@
-# Test: mumin.w
-# Unsigned Minimum (INT32)
-# Operation: md = ms2 op ms1
+# Test: mlce8/msce8
+# Load/Store 8-bit integer column (acc1)
 
-# Setup tile dimensions (4x4)
+# Setup tile dimensions
 msettilemi 4
 msettileki 4
 msettileni 4
 
-# Perform element-wise operation
-mumin.w acc0, acc2, acc1
+# Load instruction
+mlce8 acc1, (x14), x15
+
+# Store instruction
+msce8 acc1, (x16), x10

@@ -218,10 +218,10 @@ class LoadStoreLogic:
             instr_name = f"{'mlc' if is_load else 'msc'}e{instr_suffix}"
             
             print(f"  -> Executing {instr_name} (M={M}, N={N}, element_size={eew}-bit)")
-            # Column-major layout: iterate columns first, then elements within column
-            for j in range(cols):  # For each column
-                for i in range(rows):  # For each element in column
-                    mem_addr = base_addr + (j * row_stride) + (i * num_bytes)
+            # Matrix C is row-major in memory: mem_addr = base + row*stride + col*element_size
+            for i in range(rows):  # For each row
+                for j in range(cols):  # For each column
+                    mem_addr = base_addr + (i * row_stride) + (j * num_bytes)
                     if is_load:
                         byte_data = self.memory.read(mem_addr, num_bytes)
                         val = self._bytes_to_value(byte_data, format_type)
