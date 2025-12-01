@@ -277,7 +277,7 @@ TEST_CASES = [
         'ms2_reg': 2,
         'ms1_init': 2,  # Shift amount
         'ms2_init': 16,  # Value to shift
-        'operation': lambda ms2, ms1: (ms2 & 0xFFFFFFFF) >> ms1,  # ms2 >> ms1 (unsigned)
+        'operation': lambda ms2, ms1: (ms2 & 0xFFFFFFFF) >> (abs(ms1) & 0x1F),  # ms2 >> ms1 (unsigned, mask to 5 bits)
         'is_float': False,
         'data_type': 'int32',
     },
@@ -290,7 +290,7 @@ TEST_CASES = [
         'ms2_reg': 3,
         'ms1_init': 3,  # Shift amount
         'ms2_init': 8,  # Value to shift
-        'operation': lambda ms2, ms1: (ms2 << ms1) & 0xFFFFFFFF,  # ms2 << ms1 (wrap 32-bit)
+        'operation': lambda ms2, ms1: (ms2 << (abs(ms1) & 0x1F)) & 0xFFFFFFFF,  # ms2 << ms1 (wrap 32-bit, mask to 5 bits)
         'is_float': False,
         'data_type': 'int32',
     },
@@ -303,7 +303,7 @@ TEST_CASES = [
         'ms2_reg': 0,
         'ms1_init': 2,  # Shift amount  
         'ms2_init': -16,  # Negative value to shift (test sign extension)
-        'operation': lambda ms2, ms1: ms2 >> (ms1 & 0x1F) if ms2 >= 0 else (ms2 >> (ms1 & 0x1F)) | ~(0xFFFFFFFF >> (ms1 & 0x1F)),  # Arithmetic shift
+        'operation': lambda ms2, ms1: ms2 >> (abs(ms1) & 0x1F) if ms2 >= 0 else (ms2 >> (abs(ms1) & 0x1F)) | ~(0xFFFFFFFF >> (abs(ms1) & 0x1F)),  # Arithmetic shift
         'is_float': False,
         'data_type': 'int32',
     },
@@ -341,9 +341,14 @@ TEST_CASES = [
 def generate_random_values(test_info):
     """Generate random test values based on data type"""
     if test_info['data_type'] == 'int32':
-        # Integer: -100 to 100 to avoid overflow
-        ms1_val = random.randint(-100, 100)
-        ms2_val = random.randint(-100, 100)
+        # For shift operations, shift amount should be 0-31
+        if 'shift' in test_info.get('name', '').lower() or test_info.get('name', '').startswith('ms') and test_info.get('name', '')[2] in 'rl':
+            ms1_val = random.randint(0, 31)  # Shift amount (0-31)
+            ms2_val = random.randint(-100, 100)  # Value to shift
+        else:
+            # Integer: -100 to 100 to avoid overflow
+            ms1_val = random.randint(-100, 100)
+            ms2_val = random.randint(-100, 100)
     elif test_info['data_type'] == 'float32':
         # Float32: -50.0 to 50.0
         ms1_val = random.uniform(-50.0, 50.0)
@@ -527,7 +532,8 @@ def reset_accumulator(test_info):
                 
                 if test_info['is_float']:
                     # Float format: "Row 0: 10.5 10.5 10.5 10.5 (1093140480, 1093140480, 1093140480, 1093140480)"
-                    val_str = f"{val:.1f}"
+                    # Use full precision to avoid rounding errors in random mode
+                    val_str = f"{val}"  # Full precision (no .1f rounding!)
                     row_data = ' '.join([val_str] * 4)
                     # Get bit patterns for float values
                     bits = struct.unpack('I', struct.pack('f', val))[0]
@@ -739,17 +745,18 @@ def verify_elementwise_result(test_info):
     operation = test_info['operation']
     expected = operation(ms2_val, ms1_val)  # md = ms2 op ms1, so operation(ms2, ms1)
     
-    # Tolerance based on data type (ML-realistic settings)
+    # Tolerance based on data type (realistic FP precision after fixing input rounding bug)
     if test_info['data_type'] == 'float32':
-        tolerance = 0.1  # FP32 precision
+        tolerance = 0.0001  # FP32 absolute tolerance (strict after fix)
     elif test_info['data_type'] == 'float16':
-        tolerance = 0.3  # FP16 has lower precision (10-bit mantissa)
+        tolerance = 0.02  # FP16 has lower precision (10-bit mantissa, ~3-4 decimal digits)
     else:
         tolerance = 0  # Exact for integers
     
     # Check all elements
     errors = []
     is_unsigned_op = test_info.get('name', '').startswith('mumax') or test_info.get('name', '').startswith('mumin')
+    is_shift_op = 'shift' in test_info.get('name', '').lower() or test_info.get('name', '').startswith('ms') and test_info.get('name', '')[2] in 'rl'
     
     for i in range(4):
         for j in range(4):
@@ -758,8 +765,8 @@ def verify_elementwise_result(test_info):
             if test_info['is_float']:
                 # Use relative tolerance for large values (e.g., multiplication results)
                 if abs(expected) > 10:
-                    # ML-realistic: 1% for FP32, 5% for FP16 (balances precision & practicality)
-                    rel_tol = 0.05 if test_info['data_type'] == 'float16' else 0.01
+                    # Realistic FP precision: 0.1% for FP32, 0.2% for FP16
+                    rel_tol = 0.002 if test_info['data_type'] == 'float16' else 0.001
                     if abs(expected - actual) > abs(expected) * rel_tol:
                         errors.append(f"[{i}][{j}]: expected {expected:.4f}, got {actual:.4f}")
                 else:
@@ -767,8 +774,8 @@ def verify_elementwise_result(test_info):
                     if abs(expected - actual) > tolerance:
                         errors.append(f"[{i}][{j}]: expected {expected:.4f}, got {actual:.4f}")
             else:
-                # For unsigned operations, convert to unsigned for comparison
-                if is_unsigned_op:
+                # For unsigned operations and shift operations, convert to unsigned for comparison
+                if is_unsigned_op or is_shift_op:
                     actual_unsigned = actual & 0xFFFFFFFF
                     expected_unsigned = expected & 0xFFFFFFFF
                     if expected_unsigned != actual_unsigned:
@@ -849,27 +856,8 @@ def display_results(test_info):
                         # Skip the register label since we already printed it
                         continue
                     elif in_target and line.strip().startswith('Row'):
-                        # Parse the row to add signed notation for integers
-                        if not test_info['is_float']:
-                            parts = line.split(':')
-                            if len(parts) >= 2:
-                                row_label = parts[0].strip()
-                                numbers_str = parts[1].strip().split()
-                                # Convert to signed integers
-                                signed_vals = []
-                                for num_str in numbers_str:
-                                    val = int(num_str)
-                                    if val > 0x7FFFFFFF:
-                                        signed_val = val - 0x100000000
-                                    else:
-                                        signed_val = val
-                                    signed_vals.append(signed_val)
-                                # Format output with both unsigned and signed
-                                unsigned_str = ' '.join(numbers_str)
-                                signed_str = ', '.join(map(str, signed_vals))
-                                print(f"    {row_label}: {unsigned_str} ({signed_str})")
-                        else:
-                            print(f"    {line.strip()}")
+                        # Just print the line as-is since it's already formatted correctly
+                        print(f"    {line.strip()}")
                     elif in_target and any(f'tr{i}:' in line for i in range(8)):
                         break
     else:

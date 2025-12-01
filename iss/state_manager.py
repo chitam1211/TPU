@@ -214,10 +214,18 @@ def _save_matrix_file(filepath, header, reg_prefix, reg_array, is_float_file, bi
                         bit_pattern_str = ', '.join(bit_pattern_parts)
                         f.write(f"  Row {r}: {float_str} ({bit_pattern_str})\n")
                     else:
-                        # (Keep 'else' code section as is)
-                        int_parts = [str(int(val)) for val in row_data]
+                        # Integer format: show signed values both outside and inside parentheses
+                        int_parts = []
+                        for val in row_data:
+                            int_val = int(val)
+                            # Convert to signed int32 if needed
+                            if int_val > 0x7FFFFFFF:
+                                int_val = int_val - 0x100000000
+                            int_parts.append(str(int_val))
+                        
                         int_str = ' '.join(int_parts)
-                        f.write(f"  Row {r}: {int_str}\n")
+                        bit_pattern_str = ', '.join(int_parts)  # Same as int_str but comma-separated
+                        f.write(f"  Row {r}: {int_str} ({bit_pattern_str})\n")
         print(f"  {os.path.basename(filepath)} saved.")
     except IOError as e:
         print(f"  [Error] Could not write to {os.path.basename(filepath)}: {e}")
@@ -318,19 +326,17 @@ def save_state_to_files(sim):
                         else:  # 32-bit
                             masked_val = int_val & 0xFFFFFFFF
                         
-                        # Giá trị signed (human-readable)
-                        int_parts.append(str(int_val))
-
-                        # Bit pattern: show signed two's-complement interpretation
+                        # Convert to signed representation
                         if dest_bits == 8:
-                            signed8 = masked_val if masked_val <= 0x7F else masked_val - 0x100
-                            bit_pattern_parts.append(str(signed8))
+                            signed_val = masked_val if masked_val <= 0x7F else masked_val - 0x100
                         elif dest_bits == 16:
-                            signed16 = masked_val if masked_val <= 0x7FFF else masked_val - 0x10000
-                            bit_pattern_parts.append(str(signed16))
+                            signed_val = masked_val if masked_val <= 0x7FFF else masked_val - 0x10000
                         else:
-                            signed32 = masked_val if masked_val <= 0x7FFFFFFF else masked_val - 0x100000000
-                            bit_pattern_parts.append(str(signed32))
+                            signed_val = masked_val if masked_val <= 0x7FFFFFFF else masked_val - 0x100000000
+                        
+                        # Both parts show signed value
+                        int_parts.append(str(signed_val))
+                        bit_pattern_parts.append(str(signed_val))
                     
                     int_str = ' '.join(int_parts)
                     bit_pattern_str = ', '.join(bit_pattern_parts)
@@ -378,22 +384,20 @@ def save_state_to_files(sim):
                 # Lặp qua 4 hàng của thanh ghi
                 for r in range(ROWNUM):
                     row_data = sim.matrix_accelerator.acc_float[i][r]
-                    float_parts = [str(round(val, 4)) for val in row_data]
+                    float_parts = [str(round(val, 6)) for val in row_data]
                     
-                    # Dùng converter đã chọn để lấy bit pattern
+                    # Dùng converter đã chọn để lấy bit pattern - HIỂN THỊ DƯỚI DẠNG UNSIGNED
                     bit_pattern_parts = []
                     for val in row_data:
                         bits_unsigned = bits_converter_func(val)
                         
-                        # Hiển thị theo đúng độ rộng bit, nhưng dùng signed two's-complement
+                        # Hiển thị unsigned (không chuyển sang signed)
                         if dest_bits == 16:
                             bits16 = bits_unsigned & 0xFFFF
-                            signed16 = bits16 if bits16 <= 0x7FFF else bits16 - 0x10000
-                            bit_pattern_parts.append(str(signed16))
+                            bit_pattern_parts.append(str(bits16))
                         else:
                             bits32 = bits_unsigned & 0xFFFFFFFF
-                            signed32 = bits32 if bits32 <= 0x7FFFFFFF else bits32 - 0x100000000
-                            bit_pattern_parts.append(str(signed32))
+                            bit_pattern_parts.append(str(bits32))
                     
                     float_str = ' '.join(float_parts)
                     bit_pattern_str = ', '.join(bit_pattern_parts)

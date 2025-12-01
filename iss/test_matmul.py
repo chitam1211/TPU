@@ -15,7 +15,11 @@ Each test:
 - Performs C = C + A × B^T
 - Verifies result matches expected calculation
 
-Press Enter after each test to continue to next test.
+Usage:
+    python test_matmul.py                    # Interactive mode with fixed values
+    python test_matmul.py --auto             # Auto mode with fixed values
+    python test_matmul.py --random           # Interactive mode with random values
+    python test_matmul.py --auto --random    # Auto mode with random values
 """
 
 import sys

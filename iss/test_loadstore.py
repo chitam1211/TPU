@@ -10,7 +10,11 @@ Tests each load/store pair separately (one pair at a time):
 4. mlce32/msce32 - Float32 column (acc0)
 5. mlce8/msce8 - Int8 column (acc1)
 
-Press Enter after each test to continue to next test.
+Usage:
+    python test_loadstore.py                    # Interactive mode with fixed values
+    python test_loadstore.py --auto             # Auto mode with fixed values
+    python test_loadstore.py --random           # Interactive mode with random values
+    python test_loadstore.py --auto --random    # Auto mode with random values
 """
 
 import sys
@@ -18,6 +22,7 @@ import os
 from pathlib import Path
 import struct
 import random
+import argparse
 
 # Add parent directory to sys.path
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -556,13 +561,23 @@ def run_single_test(test_info, test_num, total_tests):
 
 def main():
     """Main test function"""
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Test Load/Store instructions')
+    parser.add_argument('--auto', action='store_true', help='Run in automated mode (no user input)')
+    parser.add_argument('--random', action='store_true', help='Use random test data')
+    args = parser.parse_args()
+    
+    auto_mode = args.auto
+    random_mode = args.random
+    
     print("\n" + "="*80)
-    print("LOAD/STORE INSTRUCTION TEST - SEQUENTIAL MODE")
+    print("LOAD/STORE INSTRUCTION TEST - " + ("AUTO MODE" if auto_mode else "SEQUENTIAL MODE"))
     print("="*80)
     print("\nThis script will test each load/store pair separately:")
     for i, test in enumerate(TEST_CASES, 1):
         print(f"  {i}. {test['name']:<20} - {test['description']}")
-    print("\nPress Enter after each test to continue to the next one.")
+    if not auto_mode:
+        print("\nPress Enter after each test to continue to the next one.")
     print("="*80)
     
     try:
@@ -572,7 +587,9 @@ def main():
         print("\n" + "="*80)
         print("Setup complete! Ready to start testing.")
         print("="*80)
-        input("\nPress Enter to start testing...")
+        
+        if not auto_mode:
+            input("\nPress Enter to start testing...")
         
         # Run each test
         total_tests = len(TEST_CASES)
@@ -589,12 +606,16 @@ def main():
             
             if not success:
                 print(f"\n[ERROR] Test {i} failed!")
-                response = input("\nContinue to next test? (y/n): ")
-                if response.lower() != 'y':
+                if not auto_mode:
+                    response = input("\nContinue to next test? (y/n): ")
+                    if response.lower() != 'y':
+                        break
+                else:
+                    # In auto mode, stop on first failure
                     break
             
             # Ask to continue (except after last test)
-            if i < total_tests:
+            if i < total_tests and not auto_mode:
                 print("\n" + "="*80)
                 input(f"Press Enter to continue to test {i+1}/{total_tests}...")
         
@@ -604,12 +625,14 @@ def main():
         print(f"\n[SUMMARY]")
         print(f"  ✓ Passed: {passed_tests}/{total_tests}")
         print(f"  ✗ Failed: {failed_tests}/{total_tests}")
-        print("\nOutput files:")
-        print(f"  - {SCRIPT_DIR / 'matrix.txt'}")
-        print(f"  - {SCRIPT_DIR / 'matrix_float.txt'}")
-        print(f"  - {SCRIPT_DIR / 'acc.txt'}")
-        print(f"  - {SCRIPT_DIR / 'acc_float.txt'}")
-        print(f"  - {SCRIPT_DIR / 'memory.txt'}")
+        
+        if not auto_mode:
+            print("\nOutput files:")
+            print(f"  - {SCRIPT_DIR / 'matrix.txt'}")
+            print(f"  - {SCRIPT_DIR / 'matrix_float.txt'}")
+            print(f"  - {SCRIPT_DIR / 'acc.txt'}")
+            print(f"  - {SCRIPT_DIR / 'acc_float.txt'}")
+            print(f"  - {SCRIPT_DIR / 'memory.txt'}")
         
         return 0
         

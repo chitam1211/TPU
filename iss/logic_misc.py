@@ -87,15 +87,17 @@ class MiscLogic:
         rows = min(rows_ms1, rows_md)
         cols = min(cols_ms1, cols_md)
         
-        # Giả định di chuyển float (spec không rõ ràng, có thể dùng s_size/d_size)
-        # Sử dụng s_size/d_size để xác định kiểu dữ liệu
-        is_float = (s_size_str != "00" and d_size_str != "00")
-        src_array = self._get_reg_array_by_idx(ms1_idx, is_float=is_float)
-        dest_array = self._get_reg_array_by_idx(md_idx, is_float=is_float)
+        # mmov.mm copies entire matrix - copy both int and float views
+        # to maintain data integrity regardless of how data is interpreted
+        src_int = self._get_reg_array_by_idx(ms1_idx, is_float=False)
+        src_float = self._get_reg_array_by_idx(ms1_idx, is_float=True)
+        dest_int = self._get_reg_array_by_idx(md_idx, is_float=False)
+        dest_float = self._get_reg_array_by_idx(md_idx, is_float=True)
         
         for i in range(rows):
             for j in range(cols):
-                dest_array[i][j] = src_array[i][j]
+                dest_int[i][j] = src_int[i][j]
+                dest_float[i][j] = src_float[i][j]
 
     def _exec_mmov_x_m(self, rd_idx, ms2_idx, rs1_val, ctrl_size):
         """Thực thi CHỈ mmovw.x.m (loại bỏ mmovb/h/d.x.m)"""
