@@ -41,6 +41,7 @@ TEST_CASES = [
         'name': 'madd.w',
         'description': 'Element-wise Integer Addition (INT32)',
         'instr': 'madd.w acc0, acc2, acc1',  # md, ms2, ms1
+        'explanation': 'Matrix ADD Word: md[i][j] = ms2[i][j] + ms1[i][j] (signed 32-bit)',
         'md_reg': 0,
         'ms1_reg': 1,
         'ms2_reg': 2,
@@ -54,6 +55,7 @@ TEST_CASES = [
         'name': 'msub.w',
         'description': 'Element-wise Integer Subtraction (INT32)',
         'instr': 'msub.w acc0, acc2, acc1',  # md, ms2, ms1
+        'explanation': 'Matrix SUB Word: md[i][j] = ms2[i][j] - ms1[i][j] (signed 32-bit)',
         'md_reg': 0,
         'ms1_reg': 1,
         'ms2_reg': 2,
@@ -67,6 +69,7 @@ TEST_CASES = [
         'name': 'mmul.w',
         'description': 'Element-wise Integer Multiplication (INT32)',
         'instr': 'mmul.w acc0, acc2, acc1',  # md, ms2, ms1
+        'explanation': 'Matrix MUL Word: md[i][j] = ms2[i][j] * ms1[i][j] (signed 32-bit, lower 32 bits)',
         'md_reg': 0,
         'ms1_reg': 1,
         'ms2_reg': 2,
@@ -80,6 +83,7 @@ TEST_CASES = [
         'name': 'mmax.w',
         'description': 'Element-wise Integer Maximum (INT32)',
         'instr': 'mmax.w acc0, acc2, acc1',  # md, ms2, ms1
+        'explanation': 'Matrix MAX Word: md[i][j] = max(ms2[i][j], ms1[i][j]) (signed comparison)',
         'md_reg': 0,
         'ms1_reg': 1,
         'ms2_reg': 2,
@@ -93,6 +97,7 @@ TEST_CASES = [
         'name': 'mmin.w',
         'description': 'Element-wise Integer Minimum (INT32)',
         'instr': 'mmin.w acc0, acc2, acc1',  # md, ms2, ms1
+        'explanation': 'Matrix MIN Word: md[i][j] = min(ms2[i][j], ms1[i][j]) (signed comparison)',
         'md_reg': 0,
         'ms1_reg': 1,
         'ms2_reg': 2,
@@ -107,6 +112,7 @@ TEST_CASES = [
         'name': 'mfadd.s',
         'description': 'Element-wise Float Addition (FP32)',
         'instr': 'mfadd.s acc0, acc2, acc1',  # md, ms2, ms1
+        'explanation': 'Matrix Float ADD Single: md[i][j] = ms2[i][j] + ms1[i][j] (IEEE 754 FP32)',
         'md_reg': 0,
         'ms1_reg': 1,
         'ms2_reg': 2,
@@ -120,6 +126,7 @@ TEST_CASES = [
         'name': 'mfsub.s',
         'description': 'Element-wise Float Subtraction (FP32)',
         'instr': 'mfsub.s acc0, acc2, acc1',  # md, ms2, ms1
+        'explanation': 'Matrix Float SUB Single: md[i][j] = ms2[i][j] - ms1[i][j] (IEEE 754 FP32)',
         'md_reg': 0,
         'ms1_reg': 1,
         'ms2_reg': 2,
@@ -133,6 +140,7 @@ TEST_CASES = [
         'name': 'mfmul.s',
         'description': 'Element-wise Float Multiplication (FP32)',
         'instr': 'mfmul.s acc0, acc2, acc1',  # md, ms2, ms1
+        'explanation': 'Matrix Float MUL Single: md[i][j] = ms2[i][j] * ms1[i][j] (IEEE 754 FP32)',
         'md_reg': 0,
         'ms1_reg': 1,
         'ms2_reg': 2,
@@ -146,6 +154,7 @@ TEST_CASES = [
         'name': 'mfmax.s',
         'description': 'Element-wise Float Maximum (FP32)',
         'instr': 'mfmax.s acc0, acc2, acc1',  # md, ms2, ms1
+        'explanation': 'Matrix Float MAX Single: md[i][j] = max(ms2[i][j], ms1[i][j]) (IEEE 754 FP32)',
         'md_reg': 0,
         'ms1_reg': 1,
         'ms2_reg': 2,
@@ -159,6 +168,7 @@ TEST_CASES = [
         'name': 'mfmin.s',
         'description': 'Element-wise Float Minimum (FP32)',
         'instr': 'mfmin.s acc0, acc2, acc1',  # md, ms2, ms1
+        'explanation': 'Matrix Float MIN Single: md[i][j] = min(ms2[i][j], ms1[i][j]) (IEEE 754 FP32)',
         'md_reg': 0,
         'ms1_reg': 1,
         'ms2_reg': 2,
@@ -173,6 +183,7 @@ TEST_CASES = [
         'name': 'mfadd.h',
         'description': 'Element-wise Float Addition (FP16)',
         'instr': 'mfadd.h acc1, acc3, acc2',  # md, ms2, ms1
+        'explanation': 'Matrix Float ADD Half: md[i][j] = ms2[i][j] + ms1[i][j] (IEEE 754 FP16, 16-bit)',
         'md_reg': 1,
         'ms1_reg': 2,
         'ms2_reg': 3,
@@ -186,6 +197,7 @@ TEST_CASES = [
         'name': 'mfsub.h',
         'description': 'Element-wise Float Subtraction (FP16)',
         'instr': 'mfsub.h acc1, acc3, acc2',  # md, ms2, ms1
+        'explanation': 'Matrix Float SUB Half: md[i][j] = ms2[i][j] - ms1[i][j] (IEEE 754 FP16, 16-bit)',
         'md_reg': 1,
         'ms1_reg': 2,
         'ms2_reg': 3,
@@ -199,6 +211,7 @@ TEST_CASES = [
         'name': 'mfmul.h',
         'description': 'Element-wise Float Multiplication (FP16)',
         'instr': 'mfmul.h acc1, acc3, acc2',  # md, ms2, ms1
+        'explanation': 'Matrix Float MUL Half: md[i][j] = ms2[i][j] * ms1[i][j] (IEEE 754 FP16, 16-bit)',
         'md_reg': 1,
         'ms1_reg': 2,
         'ms2_reg': 3,
@@ -214,6 +227,7 @@ TEST_CASES = [
         'name': 'madd.w (tile)',
         'description': 'Element-wise Integer Addition with Tile Registers (INT32)',
         'instr': 'madd.w tr4, tr6, tr5',
+        'explanation': 'Matrix ADD Word on Tile Regs: tr4[i][j] = tr6[i][j] + tr5[i][j] (signed 32-bit)',
         'md_reg': 4,
         'ms1_reg': 5,
         'ms2_reg': 6,
@@ -228,6 +242,7 @@ TEST_CASES = [
         'name': 'msub.w (tile)',
         'description': 'Element-wise Integer Subtraction with Tile Registers (INT32)',
         'instr': 'msub.w tr4, tr6, tr5',
+        'explanation': 'Matrix SUB Word on Tile Regs: tr4[i][j] = tr6[i][j] - tr5[i][j] (signed 32-bit)',
         'md_reg': 4,
         'ms1_reg': 5,
         'ms2_reg': 6,
@@ -242,6 +257,7 @@ TEST_CASES = [
         'name': 'mfadd.s (tile)',
         'description': 'Element-wise Float Addition with Tile Registers (FP32)',
         'instr': 'mfadd.s tr4, tr6, tr5',
+        'explanation': 'Matrix Float ADD Single on Tile Regs: tr4[i][j] = tr6[i][j] + tr5[i][j] (FP32)',
         'md_reg': 4,
         'ms1_reg': 5,
         'ms2_reg': 6,
@@ -256,6 +272,7 @@ TEST_CASES = [
         'name': 'mfmul.h (tile)',
         'description': 'Element-wise Float Multiplication with Tile Registers (FP16)',
         'instr': 'mfmul.h tr5, tr7, tr6',
+        'explanation': 'Matrix Float MUL Half on Tile Regs: tr5[i][j] = tr7[i][j] * tr6[i][j] (FP16)',
         'md_reg': 5,
         'ms1_reg': 6,
         'ms2_reg': 7,
@@ -272,6 +289,7 @@ TEST_CASES = [
         'name': 'msrl.w',
         'description': 'Logical Shift Right (INT32)',
         'instr': 'msrl.w acc0, acc2, acc1',  # md, ms2, ms1
+        'explanation': 'Matrix Shift Right Logical: md[i][j] = ms2[i][j] >> ms1[i][j] (unsigned, fills 0s from left)',
         'md_reg': 0,
         'ms1_reg': 1,
         'ms2_reg': 2,
@@ -285,6 +303,7 @@ TEST_CASES = [
         'name': 'msll.w',
         'description': 'Logical Shift Left (INT32)',
         'instr': 'msll.w acc1, acc3, acc2',  # md, ms2, ms1
+        'explanation': 'Matrix Shift Left Logical: md[i][j] = ms2[i][j] << ms1[i][j] (fills 0s from right)',
         'md_reg': 1,
         'ms1_reg': 2,
         'ms2_reg': 3,
@@ -298,6 +317,7 @@ TEST_CASES = [
         'name': 'msra.w',
         'description': 'Arithmetic Shift Right (INT32)',
         'instr': 'msra.w acc2, acc0, acc3',  # md, ms2, ms1
+        'explanation': 'Matrix Shift Right Arithmetic: md[i][j] = ms2[i][j] >> ms1[i][j] (preserves sign bit)',
         'md_reg': 2,
         'ms1_reg': 3,
         'ms2_reg': 0,
@@ -313,6 +333,7 @@ TEST_CASES = [
         'name': 'mumax.w',
         'description': 'Unsigned Maximum (INT32)',
         'instr': 'mumax.w acc3, acc1, acc2',  # md, ms2, ms1
+        'explanation': 'Matrix Unsigned MAX: md[i][j] = max(ms2[i][j], ms1[i][j]) (treats as unsigned 32-bit)',
         'md_reg': 3,
         'ms1_reg': 2,
         'ms2_reg': 1,
@@ -326,6 +347,7 @@ TEST_CASES = [
         'name': 'mumin.w',
         'description': 'Unsigned Minimum (INT32)',
         'instr': 'mumin.w acc0, acc2, acc1',  # md, ms2, ms1
+        'explanation': 'Matrix Unsigned MIN: md[i][j] = min(ms2[i][j], ms1[i][j]) (treats as unsigned 32-bit)',
         'md_reg': 0,
         'ms1_reg': 1,
         'ms2_reg': 2,
@@ -934,6 +956,16 @@ def run_single_test(test_info, test_num, total_tests, use_random=False):
     print(f"TEST {test_num}/{total_tests}: {test_info['name']}")
     print(f"Description: {test_info['description']}")
     print("="*80)
+    
+    # Print instruction details
+    print("\n" + "-"*80)
+    print("[INSTRUCTION INFO]")
+    print(f"  Instruction: {test_info['name']}")
+    print(f"  Format    : {test_info['name'].split()[0]} md, ms2, ms1")
+    print(f"  Assembly  : {test_info['instr']}")
+    print(f"  Operation : {test_info.get('explanation', 'N/A')}")
+    print(f"  Data Type : {test_info['data_type'].upper()}")
+    print("-"*80)
     
     # Generate random values if requested
     if use_random:

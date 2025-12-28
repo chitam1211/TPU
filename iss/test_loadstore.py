@@ -64,6 +64,17 @@ TEST_CASES = [
         'is_float': False,
     },
     {
+        'name': 'mlbe32/msbe32',
+        'description': 'Load/Store 32-bit float B matrix (tr3)',
+        'load_instr': 'mlbe32 tr3, (x17), x18',
+        'store_instr': 'msbe32 tr3, (x19), x18',
+        'input_addr': 0x400,
+        'output_addr': 0x440,
+        'register_type': 'tr',
+        'register_num': 3,
+        'is_float': True,
+    },
+    {
         'name': 'mlce32/msce32',
         'description': 'Load/Store 32-bit float column (acc0)',
         'load_instr': 'mlce32 acc0, (x7), x8',
@@ -157,8 +168,19 @@ def generate_random_test_data():
         hex_str = ' '.join([int8_to_hex(int8_values[line_idx*16 + i]) for i in range(16)])
         test_data[addr] = hex_str
     
-    # --- 4. Output region (initially zeros) ---
-    for addr in [0x140, 0x150, 0x160, 0x170, 0x240, 0x340, 0x380, 0x390, 0x3A0, 0x3B0, 0x3C0, 0x3D0]:
+    # --- 4. Float32 B matrix at 0x400-0x43F (for mlbe32/msbe32) ---
+    print("\n[Random Data] Generating float32 B matrix 4x4...")
+    float32_b_values = [random.uniform(1.0, 100.0) for _ in range(16)]
+    print(f"  Row 0: {float32_b_values[0]:.2f}, {float32_b_values[1]:.2f}, {float32_b_values[2]:.2f}, {float32_b_values[3]:.2f}")
+    
+    for row in range(4):
+        addr = 0x400 + row * 0x10
+        hex_str = ' '.join([float32_to_hex(float32_b_values[row*4 + i]) for i in range(4)])
+        test_data[addr] = hex_str
+    
+    # --- 5. Output region (initially zeros) ---
+    for addr in [0x140, 0x150, 0x160, 0x170, 0x240, 0x340, 0x380, 0x390, 0x3A0, 0x3B0, 0x3C0, 0x3D0, 
+                 0x440, 0x450, 0x460, 0x470]:  # Added 0x440-0x470 for msbe32 output
         test_data[addr] = "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
     
     return test_data
@@ -231,6 +253,9 @@ def setup_test_data():
         14: 0x300,  # base addr for mlce8 (column load from int8)
         15: 0x10,   # stride for mlce8 column (16 bytes per row, not 4!)
         16: 0x3C0,  # output address for msce8
+        17: 0x400,  # base addr for mlbe32 (float32 B matrix)
+        18: 0x10,   # stride for mlbe32 (16 bytes per row)
+        19: 0x440,  # output address for msbe32
     }
     
     abi_names = [
@@ -501,14 +526,42 @@ def display_results(test_info):
         with open(memory_file, 'r', encoding='utf-8') as f:
             lines = f.readlines()
         
-        input_hex = f"0x{test_info['input_addr']:03X}:"
-        output_hex = f"0x{test_info['output_addr']:03X}:"
+        # Determine stride based on test name
+        test_name = test_info['name']
+        if 'e32' in test_name:
+            stride = 0x10
+        elif 'e16' in test_name:
+            stride = 0x08
+        elif 'e8' in test_name:
+            stride = 0x04
+        else:
+            stride = 0x10
         
-        for line in lines:
-            if input_hex in line:
-                print(f"  Input  {line.strip()}")
-            elif output_hex in line:
-                print(f"  Output {line.strip()}")
+        # Collect all 4 rows for input and output
+        input_addr = test_info['input_addr']
+        output_addr = test_info['output_addr']
+        
+        print(f"  {'Row':<4} {'Input Address':<16} {'Output Address':<16}")
+        print(f"  {'-'*4} {'-'*16} {'-'*16}")
+        
+        for row in range(4):
+            in_addr = input_addr + row * stride
+            out_addr = output_addr + row * stride
+            
+            in_hex = f"0x{in_addr:03X}:"
+            out_hex = f"0x{out_addr:03X}:"
+            
+            in_data = ""
+            out_data = ""
+            
+            for line in lines:
+                if in_hex in line:
+                    in_data = line.split(':', 1)[1].strip() if ':' in line else ""
+                if out_hex in line:
+                    out_data = line.split(':', 1)[1].strip() if ':' in line else ""
+            
+            print(f"  Row{row}: Input  {in_hex} {in_data[:47]}")
+            print(f"        Output {out_hex} {out_data[:47]}")
     
     # AUTO VERIFICATION
     print("\n" + "-"*80)

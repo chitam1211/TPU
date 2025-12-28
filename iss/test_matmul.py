@@ -27,20 +27,62 @@ import os
 from pathlib import Path
 import struct
 import random
+import numpy as np
 
 # Add parent directory to sys.path
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent))
 
 # Import real FP8 converters
-from iss.converters import float_to_bits8_e5m2, float_to_bits8_e4m3
+from iss.converters import float_to_bits8_e5m2, float_to_bits8_e4m3, bits_to_float8_e5m2, bits_to_float8_e4m3, float_to_bits16, bits_to_float16, float_to_bfloat16, bfloat16_to_float
+
+def generate_random_test_matrices():
+    rng = np.random.default_rng()
+    # Float32
+    f32_a = rng.uniform(-10, 10, 16).astype(np.float32).tolist()  # tr4
+    f32_b = rng.uniform(-10, 10, 16).astype(np.float32).tolist()  # tr5
+    # Float16
+    f16_a = rng.uniform(-10, 10, 16).astype(np.float16).tolist()  # tr4
+    f16_b = rng.uniform(-10, 10, 16).astype(np.float16).tolist()  # tr5
+    # BFloat16 (simulate with float32, but will be truncated later)
+    bf16_a = rng.uniform(-10, 10, 16).astype(np.float32).tolist()  # tr4
+    bf16_b = rng.uniform(-10, 10, 16).astype(np.float32).tolist()  # tr5
+    # FP8 (E5M2, E4M3): use small range to avoid overflow
+    fp8_e5_a = rng.uniform(-4, 4, 16).astype(np.float32).tolist()  # tr4
+    fp8_e5_b = rng.uniform(-4, 4, 16).astype(np.float32).tolist()  # tr5
+    fp8_e4_a = rng.uniform(-4, 4, 16).astype(np.float32).tolist()  # tr4
+    fp8_e4_b = rng.uniform(-4, 4, 16).astype(np.float32).tolist()  # tr5
+    # Int8
+    i8_a = rng.integers(-20, 20, 16, dtype=np.int8).tolist()  # tr4
+    i8_b = rng.integers(-20, 20, 16, dtype=np.int8).tolist()  # tr5
+    # Unsigned Int8
+    u8_a = rng.integers(0, 40, 16, dtype=np.uint8).tolist()  # tr4
+    u8_b = rng.integers(0, 40, 16, dtype=np.uint8).tolist()  # tr5
+    # Initial C values: giữ nguyên như test đơn giản
+    f32_c = [10.0] * 16
+    f16_c = [5.0] * 16
+    bf16_c = [5.0] * 16
+    fp8_e5_c = [2.0] * 16
+    fp8_e4_c = [2.0] * 16
+    i8_c = [100] * 16
+    u8_c = [100] * 16
+    return {
+        'f32_a': f32_a, 'f32_b': f32_b, 'f32_c': f32_c,
+        'f16_a': f16_a, 'f16_b': f16_b, 'f16_c': f16_c,
+        'bf16_a': bf16_a, 'bf16_b': bf16_b, 'bf16_c': bf16_c,
+        'fp8_e5_a': fp8_e5_a, 'fp8_e5_b': fp8_e5_b, 'fp8_e5_c': fp8_e5_c,
+        'fp8_e4_a': fp8_e4_a, 'fp8_e4_b': fp8_e4_b, 'fp8_e4_c': fp8_e4_c,
+        'i8_a': i8_a, 'i8_b': i8_b, 'i8_c': i8_c,
+        'u8_a': u8_a, 'u8_b': u8_b, 'u8_c': u8_c,
+    }
 
 # Test cases definition
 TEST_CASES = [
     {
         'name': 'mfmacc.s',
-        'description': 'Float32 Matrix Multiply-Accumulate (FP32×FP32→FP32)',
+        'description': 'Float32 Matrix Multiply-Accumulate (FP32xFP32->FP32)',
         'instr': 'mfmacc.s acc0, tr4, tr5',
+        'explanation': 'Matrix Float Multiply-ACCumulate Single: acc[i][j] += sum(A[i][k] * B[j][k]) for k=0..K-1',
         'acc_reg': 0,
         'acc_initial': 10.0,
         'tr_a_reg': 4,
@@ -51,8 +93,9 @@ TEST_CASES = [
     },
     {
         'name': 'mfmacc.h',
-        'description': 'Float16 Matrix Multiply-Accumulate (FP16×FP16→FP16)',
+        'description': 'Float16 Matrix Multiply-Accumulate (FP16xFP16->FP16)',
         'instr': 'mfmacc.h acc1, tr4, tr5',
+        'explanation': 'Matrix Float Multiply-ACCumulate Half: acc[i][j] += sum(A[i][k] * B[j][k]) (FP16 precision)',
         'acc_reg': 1,
         'acc_initial': 5.0,
         'tr_a_reg': 4,
@@ -63,8 +106,9 @@ TEST_CASES = [
     },
     {
         'name': 'mfmacc.s.h',
-        'description': 'FP16→FP32 Widening Multiply-Accumulate (FP16×FP16→FP32)',
+        'description': 'FP16->FP32 Widening Multiply-Accumulate (FP16xFP16->FP32)',
         'instr': 'mfmacc.s.h acc2, tr4, tr5',
+        'explanation': 'Widening MatMul: FP16 inputs -> FP32 accumulator (higher precision result)',
         'acc_reg': 2,
         'acc_initial': 5.0,
         'tr_a_reg': 4,
@@ -75,8 +119,9 @@ TEST_CASES = [
     },
     {
         'name': 'mfmacc.s.bf16',
-        'description': 'BF16→FP32 Widening Multiply-Accumulate (BF16×BF16→FP32)',
+        'description': 'BF16->FP32 Widening Multiply-Accumulate (BF16xBF16->FP32)',
         'instr': 'mfmacc.s.bf16 acc3, tr4, tr5',
+        'explanation': 'Widening MatMul: BFloat16 inputs -> FP32 accumulator (ML inference common)',
         'acc_reg': 3,
         'acc_initial': 5.0,
         'tr_a_reg': 4,
@@ -87,8 +132,9 @@ TEST_CASES = [
     },
     {
         'name': 'mfmacc.bf16.e5',
-        'description': 'FP8(E5M2)→BF16 Multiply-Accumulate',
+        'description': 'FP8(E5M2)->BF16 Multiply-Accumulate',
         'instr': 'mfmacc.bf16.e5 acc2, tr6, tr7',
+        'explanation': 'FP8 E5M2 MatMul: 8-bit float (5-bit exp, 2-bit mantissa) -> BF16 accumulator',
         'acc_reg': 2,
         'acc_initial': 5.0,
         'tr_a_reg': 6,
@@ -100,8 +146,9 @@ TEST_CASES = [
     },
     {
         'name': 'mfmacc.bf16.e4',
-        'description': 'FP8(E4M3)→BF16 Multiply-Accumulate',
+        'description': 'FP8(E4M3)->BF16 Multiply-Accumulate',
         'instr': 'mfmacc.bf16.e4 acc3, tr6, tr7',
+        'explanation': 'FP8 E4M3 MatMul: 8-bit float (4-bit exp, 3-bit mantissa) -> BF16 accumulator',
         'acc_reg': 3,
         'acc_initial': 5.0,
         'tr_a_reg': 6,
@@ -113,8 +160,9 @@ TEST_CASES = [
     },
     {
         'name': 'mmacc.w.b',
-        'description': 'INT8 Signed×Signed Matrix Multiply-Accumulate (s×s→INT32)',
+        'description': 'INT8 SignedxSigned Matrix Multiply-Accumulate (sxs->INT32)',
         'instr': 'mmacc.w.b acc2, tr6, tr7',
+        'explanation': 'Integer MatMul: signed INT8 x signed INT8 -> INT32 accumulator (quantized inference)',
         'acc_reg': 2,
         'acc_initial': 100,
         'tr_a_reg': 6,
@@ -125,8 +173,9 @@ TEST_CASES = [
     },
     {
         'name': 'mmaccu.w.b',
-        'description': 'UINT8 Unsigned×Unsigned Matrix Multiply-Accumulate (u×u→INT32)',
+        'description': 'UINT8 UnsignedxUnsigned Matrix Multiply-Accumulate (uxu->INT32)',
         'instr': 'mmaccu.w.b acc3, tr6, tr7',
+        'explanation': 'Integer MatMul: unsigned UINT8 x unsigned UINT8 -> INT32 accumulator',
         'acc_reg': 3,
         'acc_initial': 100,
         'tr_a_reg': 6,
@@ -137,8 +186,9 @@ TEST_CASES = [
     },
     {
         'name': 'mmaccus.w.b',
-        'description': 'Mixed UINT8×INT8 Matrix Multiply-Accumulate (u×s→INT32)',
+        'description': 'Mixed UINT8xINT8 Matrix Multiply-Accumulate (uxs->INT32)',
         'instr': 'mmaccus.w.b acc0, tr6, tr7',
+        'explanation': 'Mixed MatMul: unsigned A (UINT8) x signed B (INT8) -> INT32 accumulator',
         'acc_reg': 0,
         'acc_initial': 100,
         'tr_a_reg': 6,
@@ -149,8 +199,9 @@ TEST_CASES = [
     },
     {
         'name': 'mmaccsu.w.b',
-        'description': 'Mixed INT8×UINT8 Matrix Multiply-Accumulate (s×u→INT32)',
+        'description': 'Mixed INT8xUINT8 Matrix Multiply-Accumulate (sxu->INT32)',
         'instr': 'mmaccsu.w.b acc1, tr6, tr7',
+        'explanation': 'Mixed MatMul: signed A (INT8) x unsigned B (UINT8) -> INT32 accumulator',
         'acc_reg': 1,
         'acc_initial': 100,
         'tr_a_reg': 6,
@@ -278,14 +329,14 @@ def generate_simple_test_matrices():
     }
 
 
-def setup_test_data():
+def setup_test_data(random_mode=False, random_matrices=None):
     """Prepare test data in memory.txt, matrix.txt, and acc.txt"""
     print("\n" + "="*80)
     print("INITIAL SETUP: PREPARING TEST DATA")
     print("="*80)
     
     iss_dir = SCRIPT_DIR
-    matrices = generate_simple_test_matrices()
+    matrices = random_matrices if random_mode and random_matrices is not None else generate_simple_test_matrices()
     
     # --- 1. Setup Memory for Load Operations ---
     print("\n[1] Setting up memory.txt for matrix loading...")
@@ -519,13 +570,14 @@ def setup_test_data():
     print(f"         - acc0-3 (int32): all 100")
 
 
-def update_memory_for_test(test_info):
+def update_memory_for_test(test_info, random_mode=False, random_matrices=None):
     """Update memory with appropriate data for the current test"""
     iss_dir = SCRIPT_DIR
     memory_file = iss_dir / "memory.txt"
-    matrices = generate_simple_test_matrices()
+    matrices = random_matrices if random_mode and random_matrices is not None else generate_simple_test_matrices()
     data_type = test_info['data_type']
-    
+    test_name = test_info['name']
+
     # Read current memory
     with open(memory_file, 'r', encoding='utf-8') as f:
         memory_lines = f.readlines()
@@ -533,7 +585,30 @@ def update_memory_for_test(test_info):
     # Determine addresses and data based on data type
     updates = {}
     
-    if data_type == 'float16':
+    # Handle mixed-sign integer cases first, as they are special
+    if test_name == 'mmaccus.w.b': # uxs (UINT8 x INT8)
+        # Load UINT8 Matrix A
+        for row in range(4):
+            addr = 0x300 + row * 0x04
+            hex_str = ' '.join([uint8_to_hex(matrices['u8_a'][row*4 + i]) for i in range(4)])
+            updates[addr] = hex_str
+        # Load INT8 Matrix B
+        for row in range(4):
+            addr = 0x310 + row * 0x04
+            hex_str = ' '.join([int8_to_hex(matrices['i8_b'][row*4 + i]) for i in range(4)])
+            updates[addr] = hex_str
+    elif test_name == 'mmaccsu.w.b': # sxu (INT8 x UINT8)
+        # Load INT8 Matrix A
+        for row in range(4):
+            addr = 0x300 + row * 0x04
+            hex_str = ' '.join([int8_to_hex(matrices['i8_a'][row*4 + i]) for i in range(4)])
+            updates[addr] = hex_str
+        # Load UINT8 Matrix B
+        for row in range(4):
+            addr = 0x310 + row * 0x04
+            hex_str = ' '.join([uint8_to_hex(matrices['u8_b'][row*4 + i]) for i in range(4)])
+            updates[addr] = hex_str
+    elif data_type == 'float16':
         # Restore FP16 data (may have been overwritten by BF16)
         for row in range(4):
             addr = 0x200 + row * 0x08
@@ -612,12 +687,19 @@ def update_memory_for_test(test_info):
                 addr = int(addr_part, 16)
                 if addr in updates:
                     new_memory_lines.append(f"{addr_part}: {updates[addr]}\n")
+                    # Remove from updates so we don't add it again
+                    del updates[addr]
                 else:
                     new_memory_lines.append(line)
             except:
                 new_memory_lines.append(line)
         else:
             new_memory_lines.append(line)
+
+    # In case an address was not in the original file, add it.
+    # This can happen if the file was empty or didn't have the 0x3xx range
+    for addr, data in sorted(updates.items()):
+        new_memory_lines.append(f"0x{addr:03X}: {data}\n")
     
     # Write back to memory file
     with open(memory_file, 'w', encoding='utf-8') as f:
@@ -627,72 +709,67 @@ def update_memory_for_test(test_info):
 
 
 def reset_accumulator(test_info):
-    """Reset accumulator to initial value before each test"""
+    """Reset all accumulators to their default initial values by rewriting the files."""
     iss_dir = Path(__file__).parent
     
-    # Determine which file to update
-    if test_info['is_float']:
-        acc_file = iss_dir / 'acc_float.txt'
-    else:
-        acc_file = iss_dir / 'acc.txt'
+    # Define the default initial state for ALL float accumulators
+    acc_initial_states_float = {
+        0: 10.0,  # For mfmacc.s
+        1: 5.0,   # For mfmacc.h
+        2: 5.0,   # For widening matmuls like mfmacc.s.h
+        3: 5.0,   # For widening matmuls like mfmacc.s.bf16
+    }
     
-    if not acc_file.exists():
-        print(f"  [WARNING] {acc_file} does not exist!")
-        return
-    
-    # Read current file
-    with open(acc_file, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
-    
-    # Find target accumulator and reset all rows to initial value
-    acc_reg = f"acc{test_info['acc_reg']}"
-    initial_val = test_info['acc_initial']
-    new_lines = []
-    in_target = False
-    rows_reset = 0
-    
-    for line in lines:
-        if f'{acc_reg}:' in line:
-            in_target = True
-            new_lines.append(line)
-        elif in_target and line.strip().startswith('(Destination'):
-            # Keep the destination type line
-            new_lines.append(line)
-        elif in_target and line.strip().startswith('Row'):
-            # Reset this row to initial values (4x4 matrix)
-            row_num = line.split()[1].rstrip(':')
-            if test_info['is_float']:
-                # Float format: "Row 0: 10.0 10.0 10.0 10.0 (1092616192, 1092616192, 1092616192, 1092616192)"
-                import struct
-                val_str = f"{initial_val:.1f}"
-                row_data = ' '.join([val_str] * 4)
-                # Get bit patterns for float values
-                bits = struct.unpack('I', struct.pack('f', initial_val))[0]
-                bits_str = ', '.join([str(bits)] * 4)
-                new_lines.append(f"  Row {row_num}: {row_data} ({bits_str})\n")
-                rows_reset += 1
-            else:
-                # Int format: "Row 0: 100 100 100 100 (100, 100, 100, 100)"
-                val_str = str(int(initial_val))
-                row_data = ' '.join([val_str] * 4)
-                vals_str = ', '.join([val_str] * 4)
-                new_lines.append(f"  Row {row_num}: {row_data} ({vals_str})\n")
-                rows_reset += 1
-        elif in_target and any(f'acc{i}:' in line for i in range(4)):
-            # Reached next accumulator
-            in_target = False
-            new_lines.append(line)
-        else:
-            new_lines.append(line)
-    
-    # Write back
-    with open(acc_file, 'w', encoding='utf-8') as f:
-        f.writelines(new_lines)
+    # Define the default initial state for ALL integer accumulators
+    acc_initial_states_int = {
+        0: 100,   # For mmaccus.w.b
+        1: 100,   # For mmaccsu.w.b
+        2: 100,   # For mmacc.w.b
+        3: 100,   # For mmaccu.w.b
+    }
+
+    # Helper to write a float accumulator block
+    def write_float_acc_block(f, acc_num, initial_val):
+        acc_types = {0: "FP32", 1: "FP16", 2: "FP32", 3: "FP32"}
+        acc_type = acc_types.get(acc_num, "FP32")
+        f.write(f"acc{acc_num}:\n")
+        f.write(f"  (Destination: {acc_type}, 32-bit)\n")
+        for i in range(4):
+            val_str = f"{initial_val:.4f}"
+            row_data = ' '.join([val_str] * 4)
+            bits = struct.unpack('I', struct.pack('f', float(initial_val)))[0]
+            bits_str = ', '.join([str(bits)] * 4)
+            f.write(f"  Row {i}: {row_data} ({bits_str})\n")
+        f.write("\n")
+
+    # Helper to write an integer accumulator block
+    def write_int_acc_block(f, acc_num, initial_val):
+        f.write(f"acc{acc_num}:\n")
+        f.write("  (Destination: INT32, 32-bit)\n")
+        for i in range(4):
+            val_str = str(int(initial_val))
+            row_data = ' '.join([val_str] * 4)
+            f.write(f"  Row {i}: {row_data} ({row_data})\n")
+        f.write("\n")
+
+    # Rewrite the float accumulator file completely
+    acc_float_file = iss_dir / 'acc_float.txt'
+    with open(acc_float_file, 'w', encoding='utf-8') as f:
+        f.write("--- Accumulator Registers (acc0-acc3) (Float Only) ---\n\n")
+        for acc_num, initial_val in acc_initial_states_float.items():
+            write_float_acc_block(f, acc_num, initial_val)
         f.flush()
         os.fsync(f.fileno())
     
-    if rows_reset != 4:
-        print(f"  [WARNING] Only reset {rows_reset}/4 rows for {acc_reg}")
+    # Rewrite the integer accumulator file completely
+    acc_file = iss_dir / 'acc.txt'
+    with open(acc_file, 'w', encoding='utf-8') as f:
+        f.write("--- Accumulator Registers (acc0-acc3) (Integer Only) ---\n\n")
+        for acc_num, initial_val in acc_initial_states_int.items():
+            write_int_acc_block(f, acc_num, initial_val)
+        f.flush()
+        os.fsync(f.fileno())
+
 
 
 def create_assembly_for_test(test_info):
@@ -804,8 +881,8 @@ def run_simulator():
     return result.returncode == 0
 
 
-def verify_matmul_result(test_info):
-    """Verify matrix multiplication result"""
+def verify_matmul_result(test_info, random_mode=False, random_matrices=None):
+    """Verify matrix multiplication result with hardware-like precision simulation."""
     iss_dir = SCRIPT_DIR
     
     # Read accumulator file
@@ -820,7 +897,7 @@ def verify_matmul_result(test_info):
     with open(acc_file, 'r', encoding='utf-8') as f:
         lines = f.readlines()
     
-    # Parse accumulator result
+    # Parse accumulator result from file
     acc_reg = f"acc{test_info['acc_reg']}"
     result_matrix = []
     in_target = False
@@ -830,12 +907,11 @@ def verify_matmul_result(test_info):
             in_target = True
             continue
         if in_target and line.strip().startswith('Row'):
-            # Extract numbers from "Row X: a b c d (...)"
             parts = line.split(':')[1].split('(')[0].strip().split()
             try:
                 row_values = [float(x) if test_info['is_float'] else int(x) for x in parts]
                 result_matrix.append(row_values)
-            except:
+            except (ValueError, IndexError):
                 continue
         if in_target and any(f'acc{i}:' in line for i in range(4) if i != test_info['acc_reg']):
             break
@@ -843,72 +919,101 @@ def verify_matmul_result(test_info):
     if len(result_matrix) != 4:
         return False, f"Could not parse result matrix (got {len(result_matrix)} rows)"
     
-    # For simple identity matrix multiplication:
-    # A × I^T = A (since I^T = I)
-    # Expected: C_initial + A
-    
-    matrices = generate_simple_test_matrices()
+    # --- Reference Calculation with Quantization ---
+    matrices = random_matrices if random_mode and random_matrices is not None else generate_simple_test_matrices()
     data_type = test_info['data_type']
     acc_type = test_info.get('acc_type', data_type)
     
-    # Get initial C values based on test case
-    # Match what we initialized in setup_test_data()
+    # Get initial C values
     if test_info['name'] == 'mfmacc.s':
-        initial_c = [10.0] * 16  # acc0 for FP32
-    elif test_info['name'] == 'mfmacc.h':
-        initial_c = [5.0] * 16   # acc1 for FP16
-    elif test_info['name'] in ['mfmacc.s.h', 'mfmacc.s.bf16']:
-        initial_c = [5.0] * 16   # acc2, acc3 for widening
-    elif test_info['name'] in ['mfmacc.bf16.e5', 'mfmacc.bf16.e4']:
-        initial_c = [5.0] * 16  # acc2, acc3 with 5.0 initial (reset before each test)
+        initial_c = [10.0] * 16
+    elif test_info['name'] in ['mfmacc.h', 'mfmacc.s.h', 'mfmacc.s.bf16', 'mfmacc.bf16.e5', 'mfmacc.bf16.e4']:
+        initial_c = [5.0] * 16
     elif acc_type == 'int32':
         initial_c = [100] * 16
     else:
         initial_c = [0.0] * 16
     
-    # Get matrix A values
-    if data_type == 'float32':
-        matrix_a = matrices['f32_a']
-        tolerance = 0.001
-    elif data_type == 'float16':
-        matrix_a = matrices['f16_a']
-        tolerance = 0.1 if acc_type == 'float16' else 0.01  # Widening has better precision
-    elif data_type == 'bfloat16':
-        matrix_a = matrices['bf16_a']
-        tolerance = 0.5  # BF16 has less precision
-    elif data_type == 'fp8_e5m2':
-        matrix_a = matrices['fp8_e5_a']
-        tolerance = 1.0  # FP8 has very limited precision
-    elif data_type == 'fp8_e4m3':
-        matrix_a = matrices['fp8_e4_a']
-        tolerance = 1.0  # FP8 has very limited precision
-    elif data_type == 'int8':
-        matrix_a = matrices['i8_a']
-        tolerance = 0  # Exact for integers
-    elif data_type == 'uint8':
-        matrix_a = matrices['u8_a']
-        tolerance = 0  # Exact for integers
+    # Get matrix A and B keys
+    a_key, b_key = '', ''
+    # Handle mixed-precision types by name
+    if test_info['name'] == 'mmaccus.w.b': # uxs
+        a_key, b_key = 'u8_a', 'i8_b'
+    elif test_info['name'] == 'mmaccsu.w.b': # sxu
+        a_key, b_key = 'i8_a', 'u8_b'
+    else: # Handle standard types
+        type_map_keys = {
+            'float32': ('f32_a', 'f32_b'), 'float16': ('f16_a', 'f16_b'),
+            'bfloat16': ('bf16_a', 'bf16_b'), 'fp8_e5m2': ('fp8_e5_a', 'fp8_e5_b'),
+            'fp8_e4m3': ('fp8_e4_a', 'fp8_e4_b'), 'int8': ('i8_a', 'i8_b'),
+            'uint8': ('u8_a', 'u8_b')
+        }
+        if data_type in type_map_keys:
+            a_key, b_key = type_map_keys[data_type]
+        else:
+            return False, f"Unknown data type for verification: {data_type}"
+
+    matrix_a_list = matrices[a_key]
+    matrix_b_list = matrices[b_key]
+
+    np_a = np.array(matrix_a_list, dtype=np.float64).reshape(4, 4)
+    np_b = np.array(matrix_b_list, dtype=np.float64).reshape(4, 4)
+    np_c_initial = np.array(initial_c, dtype=np.float64).reshape(4, 4)
+
+    if test_info['is_float']:
+        # Define quantization functions
+        def quantize(val, dtype):
+            if dtype == 'float16': return bits_to_float16(float_to_bits16(val))
+            if dtype == 'bfloat16': return bfloat16_to_float(float_to_bfloat16(val))
+            if dtype == 'fp8_e5m2': return bits_to_float8_e5m2(float_to_bits8_e5m2(val))
+            if dtype == 'fp8_e4m3': return bits_to_float8_e4m3(float_to_bits8_e4m3(val))
+            return np.float32(val) # Default for float32
+
+        v_quantize = np.vectorize(quantize)
+
+        # 1. Quantize inputs based on their type
+        input_b_type = data_type
+        if test_info['name'] == 'mmaccsu.w.b': input_b_type = 'uint8'
+        elif test_info['name'] == 'mmaccus.w.b': input_b_type = 'int8'
+        
+        quantized_a = v_quantize(np_a, data_type)
+        quantized_b = v_quantize(np_b, input_b_type)
+
+        # 2. Perform matmul
+        intermediate_result = np.matmul(quantized_a, quantized_b.T)
+
+        # 3. Quantize initial acc and add intermediate result
+        quantized_c_initial = v_quantize(np_c_initial, acc_type)
+        expected_matrix_unquantized = quantized_c_initial + intermediate_result
+
+        # 4. Quantize the final sum to accumulator's precision
+        expected_matrix = v_quantize(expected_matrix_unquantized, acc_type)
+        tolerance = 1e-6 # Use a tight tolerance
     else:
-        return False, f"Unknown data type: {data_type}"
+        # For integer math, the original calculation should be exact
+        expected_matrix = np_c_initial + np.matmul(np_a, np_b.T)
+        tolerance = 0
     
-    # Expected: C + A (since B is identity)
+    # Compare results
     errors = []
     for i in range(4):
         for j in range(4):
-            idx = i * 4 + j
-            expected = initial_c[idx] + matrix_a[idx]
+            expected = expected_matrix[i, j]
             actual = result_matrix[i][j]
             
+            if not test_info['is_float']:
+                expected = round(expected)
+
             if abs(expected - actual) > tolerance:
                 errors.append(f"[{i}][{j}]: expected {expected:.4f}, got {actual:.4f}")
     
     if not errors:
         return True, "Matrix multiplication correct!"
     else:
-        return False, "Errors:\n    " + "\n    ".join(errors[:5])  # Show first 5 errors
+        return False, "Errors:\n    " + "\n    ".join(errors[:5])
 
 
-def display_results(test_info):
+def display_results(test_info, random_mode=False, random_matrices=None):
     """Display results for current test"""
     print("\n" + "="*80)
     print(f"RESULTS: {test_info['name']}")
@@ -916,77 +1021,140 @@ def display_results(test_info):
     
     iss_dir = SCRIPT_DIR
     
-    # Display tile registers (A and B matrices)
-    # FP8 data is stored in tr_int (matrix.txt) even though acc is float
+    # Determine file paths
     if test_info.get('tr_uses_int_storage', False):
         tr_file = iss_dir / 'matrix.txt'
     elif test_info['is_float']:
         tr_file = iss_dir / 'matrix_float.txt'
     else:
         tr_file = iss_dir / 'matrix.txt'
-    
-    print(f"\n[Tile Registers] From {tr_file.name}:")
-    
-    if tr_file.exists():
-        with open(tr_file, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-            current_reg = None
-            show_regs = [f"tr{test_info['tr_a_reg']}", f"tr{test_info['tr_b_reg']}"]
-            
-            for line in lines:
-                # Check if this is a register label line
-                is_reg_line = any(f'tr{i}:' in line for i in range(8))
-                
-                # Check for register labels
-                for r in show_regs:
-                    if f'{r}:' in line:
-                        current_reg = r
-                        print(f"  {line.strip()}")
-                        break
-                else:
-                    # If we're in a register we want to show
-                    if current_reg and line.strip().startswith('Row'):
-                        print(f"    {line.strip()}")
-                    # Stop if we hit a different register
-                    elif current_reg and is_reg_line:
-                        current_reg = None
-    
-    # Display accumulator result
+
     if test_info['is_float']:
         acc_file = iss_dir / 'acc_float.txt'
     else:
         acc_file = iss_dir / 'acc.txt'
-    
+
+    # Helper function to read a matrix from a file
+    def read_matrix(file_path, reg_num, test_info):
+        matrix = []
+        if not file_path.exists(): return matrix
+        with open(file_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        reg_label = f"tr{reg_num}:"
+        in_reg = False
+        for line in lines:
+            if reg_label in line:
+                in_reg = True
+                continue
+            if in_reg and line.strip().startswith('Row'):
+                parts = line.split(':')[1].split('(')[0].strip().split()
+                try:
+                    # Logic to handle different data types
+                    if test_info.get('tr_uses_int_storage', False):
+                        int_values = [int(float(p)) for p in parts]
+                        if test_info['data_type'] == 'fp8_e5m2':
+                            row_values = [bits_to_float8_e5m2(val) for val in int_values]
+                        elif test_info['data_type'] == 'fp8_e4m3':
+                            row_values = [bits_to_float8_e4m3(val) for val in int_values]
+                        else:  # int8, uint8
+                            row_values = [float(v) for v in int_values]
+                    else: # float32, float16
+                        row_values = [float(p) for p in parts]
+                    matrix.append(row_values)
+                except (ValueError, IndexError):
+                    continue
+            if in_reg and line.strip() and not line.strip().startswith('Row') and "tr" in line:
+                break
+        return matrix
+
+    # Read matrices A and B from the appropriate tile register file
+    mat_a = read_matrix(tr_file, test_info['tr_a_reg'], test_info)
+    mat_b = read_matrix(tr_file, test_info['tr_b_reg'], test_info)
+
+    # 1. Print Tile Register A
+    print(f"\n[tr{test_info['tr_a_reg']} (A) used in computation]:")
+    if mat_a:
+        for r in range(len(mat_a)):
+            row_vals = [f"{v:.4f}" for v in mat_a[r]]
+            print(f"  Row {r}: {' '.join(row_vals)}")
+    else:
+        print("  [Could not read matrix from file]")
+
+    # 2. Print Tile Register B
+    print(f"\n[tr{test_info['tr_b_reg']} (B) used in computation]:")
+    if mat_b:
+        for r in range(len(mat_b)):
+            row_vals = [f"{v:.4f}" for v in mat_b[r]]
+            print(f"  Row {r}: {' '.join(row_vals)}")
+    else:
+        print("  [Could not read matrix from file]")
+
+    # 3. Print Initial Accumulator State
+    print(f"\n[Accumulator acc{test_info['acc_reg']} before operation]:")
+    initial_val = test_info['acc_initial']
+    for r in range(4):
+        row_vals = [f"{initial_val:.4f}" if test_info['is_float'] else str(int(initial_val))] * 4
+        print(f"  Row {r}: {' '.join(row_vals)}")
+
+    # 4. Compute and Print Intermediate Result (A x B^T)
+    print("\n[Intermediate: A × B^T] (before accumulation):")
+    intermediate = None
+    if mat_a and mat_b:
+        try:
+            import numpy as np
+            arr_a = np.array(mat_a)
+            arr_b = np.array(mat_b)
+            intermediate = np.matmul(arr_a, arr_b.T)
+
+            # Quantize intermediate result to the accumulator's precision for display
+            acc_type = test_info['acc_type']
+            quantized_intermediate = np.copy(intermediate)
+
+            if not test_info['is_float']:
+                quantized_intermediate = quantized_intermediate.round().astype(int)
+            elif acc_type == 'float16':
+                vectorized_quantize = np.vectorize(lambda x: bits_to_float16(float_to_bits16(x)))
+                quantized_intermediate = vectorized_quantize(intermediate)
+            elif acc_type == 'bfloat16':
+                vectorized_quantize = np.vectorize(lambda x: bfloat16_to_float(float_to_bfloat16(x)))
+                quantized_intermediate = vectorized_quantize(intermediate)
+            elif acc_type == 'float32':
+                quantized_intermediate = intermediate.astype(np.float32)
+
+            for r in range(quantized_intermediate.shape[0]):
+                if test_info['is_float']:
+                    row_vals = [f"{v:.4f}" for v in quantized_intermediate[r]]
+                else:
+                    row_vals = [str(v) for v in quantized_intermediate[r]]
+                print(f"  Row {r}: {' '.join(row_vals)}")
+
+        except Exception as e:
+            print(f"  [Error] Could not compute intermediate result: {e}")
+    else:
+        print("  [Skipped] Missing matrix A or B.")
+
+    # 5. Print Final Accumulator State
     print(f"\n[Accumulator: acc{test_info['acc_reg']}] From {acc_file.name}:")
-    
     if acc_file.exists():
         with open(acc_file, 'r', encoding='utf-8') as f:
             lines = f.readlines()
-            acc_reg = f"acc{test_info['acc_reg']}"
-            in_target = False
-            
-            # Print type annotation first
-            if test_info['is_float']:
-                print(f"  {acc_reg}:")
-                print(f"    (Destination: {test_info['acc_type'].upper()}, 32-bit)")
-            else:
-                print(f"  {acc_reg}:")
-                print(f"    (Destination: INT32, 32-bit)")
-            
-            for line in lines:
-                if f'{acc_reg}:' in line:
-                    in_target = True
-                    # Skip the register label since we already printed it
-                    continue
-                elif in_target and line.strip().startswith('Row'):
-                    print(f"    {line.strip()}")
-                elif in_target and any(f'acc{i}:' in line for i in range(4)):
-                    break
+        acc_reg_label = f"acc{test_info['acc_reg']}"
+        in_target_block = False
+        for line in lines:
+            if f'{acc_reg_label}:' in line:
+                in_target_block = True
+                print(f"  {line.strip()}") # Print "accX:"
+            elif in_target_block and (line.strip().startswith('(') or line.strip().startswith('Row')):
+                 print(f"    {line.strip()}")
+            elif in_target_block and (line.strip() == "" or "acc" in line):
+                break
+    else:
+        print(f"  [File not found: {acc_file}]")
     
     # Verification
     print("\n" + "-"*80)
     print("[VERIFICATION]")
-    success, message = verify_matmul_result(test_info)
+    success, message = verify_matmul_result(test_info, random_mode, random_matrices)
     
     if success:
         print(f"  [OK] PASS - {message}")
@@ -998,16 +1166,27 @@ def display_results(test_info):
     return success
 
 
-def run_single_test(test_info, test_num, total_tests):
+def run_single_test(test_info, test_num, total_tests, random_mode=False, random_matrices=None):
     """Run a single test case"""
     print("\n" + "="*80)
     print(f"TEST {test_num}/{total_tests}: {test_info['name']}")
     print(f"Description: {test_info['description']}")
     print("="*80)
     
+    # Print instruction details
+    print("\n" + "-"*80)
+    print("[INSTRUCTION INFO]")
+    print(f"  Instruction: {test_info['name']}")
+    print(f"  Format    : {test_info['name'].split('.')[0]}.* md, ms1, ms2")
+    print(f"  Assembly  : {test_info['instr']}")
+    print(f"  Operation : {test_info.get('explanation', 'N/A')}")
+    print(f"  Input Type: {test_info['data_type'].upper()}")
+    print(f"  Acc Type  : {test_info['acc_type'].upper()}")
+    print("-"*80)
+    
     # Step 0: Update memory with appropriate data for this test
     print("\n[Step 0] Updating memory for this test...")
-    update_memory_for_test(test_info)
+    update_memory_for_test(test_info, random_mode, random_matrices)
     print("  [OK] Memory updated")
     
     # Step 0.5: Reset accumulator to initial value
@@ -1036,7 +1215,7 @@ def run_single_test(test_info, test_num, total_tests):
     print("  [OK] Simulation complete")
     
     # Step 4: Display results and verify
-    passed = display_results(test_info)
+    passed = display_results(test_info, random_mode, random_matrices)
     
     return passed
 
@@ -1045,9 +1224,12 @@ def main():
     """Main test function"""
     import sys
     auto_run = '--auto' in sys.argv or '-a' in sys.argv
-    
+    random_mode = '--random' in sys.argv
+
     print("\n" + "="*80)
     print("MATRIX MULTIPLY-ACCUMULATE TEST")
+    if random_mode:
+        print("Running in RANDOMIZED mode.")
     print("="*80)
     print("\nThis script tests matrix multiplication: C = C + A × B^T")
     print("\nTest cases:")
@@ -1060,8 +1242,14 @@ def main():
     print("="*80)
     
     try:
+        random_matrices = None
+        if random_mode:
+            print("\nGenerating random matrices for testing...")
+            random_matrices = generate_random_test_matrices()
+            print("  [OK] Random matrices generated.")
+
         # Initial setup (once)
-        setup_test_data()
+        setup_test_data(random_mode, random_matrices)
         
         print("\n" + "="*80)
         print("Setup complete! Ready to start testing.")
@@ -1077,7 +1265,7 @@ def main():
         failed_tests = 0
         
         for i, test_info in enumerate(TEST_CASES, 1):
-            success = run_single_test(test_info, i, total_tests)
+            success = run_single_test(test_info, i, total_tests, random_mode, random_matrices)
             
             if success:
                 passed_tests += 1

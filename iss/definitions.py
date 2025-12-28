@@ -80,7 +80,7 @@ matrix_misc_instructions = {
     "mduph.m.x": {"func": 0b0011, "uop": 0b11, "ctrl25": 0b0, "func3": 0b000, "d_size": 0b01, "opcode": 0b0101011, "variant": "md_rs2_rs1", "instr_type": "MISC"},
     "mdupw.m.x": {"func": 0b0011, "uop": 0b11, "ctrl25": 0b0, "func3": 0b000, "d_size": 0b10, "opcode": 0b0101011, "variant": "md_rs2_rs1", "instr_type": "MISC"},
     "mdupd.m.x": {"func": 0b0011, "uop": 0b11, "ctrl25": 0b0, "func3": 0b000, "d_size": 0b11, "opcode": 0b0101011, "variant": "md_rs2_rs1", "instr_type": "MISC"},
-    "mmovb.x.m": {"func": 0b0010, "uop": 0b11, "ctrl25": 0b0, "ctrl24_23": 0b11, "func3": 0b000, "opcode": 0b0101011, "variant": "rd_ms2_rs1", "instr_type": "MISC"},
+    "mmovb.x.m": {"func": 0b0010, "uop": 0b11, "ctrl25": 0b0, "ctrl24_23": 0b00, "func3": 0b000, "opcode": 0b0101011, "variant": "rd_ms2_rs1", "instr_type": "MISC"},
     "mmovh.x.m": {"func": 0b0010, "uop": 0b11, "ctrl25": 0b0, "ctrl24_23": 0b01, "func3": 0b000, "opcode": 0b0101011, "variant": "rd_ms2_rs1", "instr_type": "MISC"},
     "mmovw.x.m": {"func": 0b0010, "uop": 0b11, "ctrl25": 0b0, "ctrl24_23": 0b10, "func3": 0b000, "opcode": 0b0101011, "variant": "rd_ms2_rs1", "instr_type": "MISC"},
     "mmovd.x.m": {"func": 0b0010, "uop": 0b11, "ctrl25": 0b0, "ctrl24_23": 0b11, "func3": 0b000, "opcode": 0b0101011, "variant": "rd_ms2_rs1", "instr_type": "MISC"},
@@ -200,8 +200,8 @@ matrix_loadstore_instructions = {
 # NHÓM 5: MATRIX ELEMENT-WISE INSTRUCTIONS (Table 6)
 matrix_ew_instructions = {
     # madd.w.mm md, ms2, ms1
-    "madd.w.mm": {"instr_type": "EW", "func": 0b0000, "uop": 0b01, "ctrl": 0b111, "s_size": 0b01, "func3": 0b001, "d_size": 0b10, "major_opcode": 0b0101011, "variant": "md_ms2_ms1"},
-    "mn4clipl.w.mm": {"instr_type": "EW", "func": 0b0010, "uop": 0b01, "ctrl": 0b111, "s_size": 0b10, "func3": 0b001, "d_size": 0b10, "major_opcode": 0b0101011, "variant": "md_ms2_ms1"},
+    "madd.w.mm": {"instr_type": "EW", "func": 0b0000, "uop": 0b01, "ctrl": 0b111, "s_size": 0b10, "func3": 0b001, "d_size": 0b10, "major_opcode": 0b0101011, "variant": "md_ms2_ms1"},
+    "mn4clipl.w.mm": {"instr_type": "EW", "func": 0b0010, "uop": 0b00, "ctrl": 0b111, "s_size": 0b10, "func3": 0b001, "d_size": 0b10, "major_opcode": 0b0101011, "variant": "md_ms2_ms1"},
     "mn4cliph.w.mm": {"instr_type": "EW", "func": 0b0011, "uop": 0b00, "ctrl": 0b111, "s_size": 0b10, "func3": 0b001, "d_size": 0b10, "major_opcode": 0b0101011, "variant": "md_ms2_ms1"},
     "mn4cliplu.w.mm": {"instr_type": "EW", "func": 0b0100, "uop": 0b00, "ctrl": 0b111, "s_size": 0b10, "func3": 0b001, "d_size": 0b10, "major_opcode": 0b0101011, "variant": "md_ms2_ms1"},
     "mn4cliphu.w.mm": { "instr_type": "EW", "func": 0b0101, "uop": 0b00, "ctrl": 0b111, "s_size": 0b10, "func3": 0b001, "d_size": 0b10, "major_opcode": 0b0101011, "variant": "md_ms2_ms1"},
@@ -209,7 +209,7 @@ matrix_ew_instructions = {
 	"mmul.w.mm": { "instr_type": "EW", "func": 0b0010, "uop": 0b01, "ctrl": 0b111, "s_size": 0b10, "func3": 0b001, "d_size": 0b10, "major_opcode": 0b0101011, "variant": "md_ms2_ms1"},
 	"mmulh.w.mm": { "instr_type": "EW", "func": 0b0011, "uop": 0b01, "ctrl": 0b111, "s_size": 0b10, "func3": 0b001, "d_size": 0b10, "major_opcode": 0b0101011, "variant": "md_ms2_ms1"},
 	"mmax.w.mm": { "instr_type": "EW", "func": 0b0100, "uop": 0b01, "ctrl": 0b111, "s_size": 0b10, "func3": 0b001, "d_size": 0b10, "major_opcode": 0b0101011, "variant": "md_ms2_ms1"},
-	"mumax.w.mm": { "instr_type": "EW", "func": 0b0011, "uop": 0b01, "ctrl": 0b111, "s_size": 0b10, "func3": 0b001, "d_size": 0b10, "major_opcode": 0b0101011, "variant": "md_ms2_ms1"},
+	"mumax.w.mm": { "instr_type": "EW", "func": 0b0101, "uop": 0b01, "ctrl": 0b111, "s_size": 0b10, "func3": 0b001, "d_size": 0b10, "major_opcode": 0b0101011, "variant": "md_ms2_ms1"},
 	"mmin.w.mm": { "instr_type": "EW", "func": 0b0110, "uop": 0b01, "ctrl": 0b111, "s_size": 0b10, "func3": 0b001, "d_size": 0b10, "major_opcode": 0b0101011, "variant": "md_ms2_ms1"},
 	"mumin.w.mm": { "instr_type": "EW", "func": 0b0111, "uop": 0b01, "ctrl": 0b111, "s_size": 0b10, "func3": 0b001, "d_size": 0b10, "major_opcode": 0b0101011, "variant": "md_ms2_ms1"},
 	"msrl.w.mm": { "instr_type": "EW", "func": 0b1000, "uop": 0b01, "ctrl": 0b111, "s_size": 0b10, "func3": 0b001, "d_size": 0b10, "major_opcode": 0b0101011, "variant": "md_ms2_ms1"},
