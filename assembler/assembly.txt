@@ -1,5 +1,5 @@
-# Test: mlce8/msce8
-# Load/Store 8-bit integer column (acc1)
+# Test: mlbe8/msbe8
+# Load/Store 8-bit integer (tr2)
 
 # Setup tile dimensions
 msettilemi 4
@@ -7,7 +7,7 @@ msettileki 4
 msettileni 4
 
 # Load instruction
-mlce8 acc1, (x14), x15
+mlbe8 tr2, (x5), x6
 
 # Store instruction
-msce8 acc1, (x16), x10
+msbe8 tr2, (x12), x6

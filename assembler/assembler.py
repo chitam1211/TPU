@@ -290,9 +290,9 @@ class Assembler:
                (md_val << 7) | opcode
         return code
 
-    def _assemble_line(self, line):
+    def assemble_line(self, line):
         """
-        Xác định lệnh thuộc nhóm nào, gọi hàm assemble_xxx tương ứng.
+        Public method: Xác định lệnh thuộc nhóm nào, gọi hàm assemble_xxx tương ứng.
         (Đã di chuyển từ file cũ và thêm 'self')
         """
         line = line.split('#')[0].strip()
@@ -354,7 +354,7 @@ class Assembler:
             if not line_stripped:
                 continue
             try:
-                code = self._assemble_line(line)
+                code = self.assemble_line(line)
                 if code is not None:
                     machine_codes.append(f"{code:032b}")
                     print(f"  {line_stripped:<30} -> {code:032b}")
