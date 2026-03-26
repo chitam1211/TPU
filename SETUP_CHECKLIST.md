@@ -1,130 +1,123 @@
-# Setup Checklist cho máy mới
+# Setup checklist for a new machine
 
-Khi pull code về máy mới, làm theo thứ tự:
+Follow these steps in order after cloning the project.
 
-## Bước 1: Pull code
+## Step 1. Clone the repository
 ```bash
 git clone https://github.com/chitam1211/TPU.git
 cd TPU
 git checkout oop_ver
 ```
 
-## Bước 2: Kiểm tra Python version
+## Step 2. Check the Python version
 ```bash
 python --version
-# Cần: Python 3.8 trở lên
 ```
 
-Nếu không đủ version:
-- Windows: Tải từ https://www.python.org/downloads/
-- Linux/Mac: `sudo apt install python3.10` hoặc `brew install python@3.10`
+Required: Python 3.8 or newer.
 
-## Bước 3: Chạy validation script
+If the version is too old:
+
+- Windows: download from https://www.python.org/downloads/
+- Linux or macOS: install with your package manager, for example python3.10
+
+## Step 3. Run the validation script
 ```bash
 python validate_setup.py
 ```
 
-**Nếu ALL CHECKS PASSED → Bỏ qua bước 4, nhảy tới bước 5!**
+If all checks pass, skip Step 4 and go to Step 5.
 
-**Nếu có lỗi → Làm bước 4**
+## Step 4. Fix common issues
 
-## Bước 4: Fix các lỗi thường gặp
-
-### Lỗi: "Cannot import iss"
+### Error: Cannot import iss
 ```bash
-# Kiểm tra bạn đang ở đúng thư mục TPU/
-pwd  # hoặc cd (Windows)
-
-# Phải thấy: /path/to/TPU
-# Không phải: /path/to/TPU/iss
+pwd
 ```
 
-### Lỗi: "Python version too old"
+You should be in the project root directory, not inside iss.
+
+### Error: Python version too old
 ```bash
-# Cài Python mới hơn
-python3.10 --version  # Thử các version khác
+python3.10 --version
 ```
 
-### Lỗi: "Missing files"
+Install a newer Python version and retry.
+
+### Error: Missing files
 ```bash
-# Pull lại code
 git pull origin oop_ver
-git status  # Kiểm tra có file nào bị xóa không
+git status
 ```
 
-### Cảnh báo: "numpy not installed"
+### Warning: numpy not installed
 ```bash
-# Optional - chỉ cần nếu muốn test float16
 pip install numpy
 ```
 
-## Bước 5: Test chạy simulator
+Numpy is optional and only required for float16 tests.
+
+## Step 5. Run a quick simulator test
 ```bash
-# Test 1: Chạy với reset
-python -m iss.run_simulator -r
-
-# Test 2: Chạy bình thường  
 python -m iss.run_simulator
+```
 
-# Test 3: Chạy test script (nếu có)
+Optional test script:
+```bash
 cd iss
 python test_loadstore.py
 ```
 
-## Bước 6: Kiểm tra VS Code (nếu dùng VS Code)
+## Step 6. VS Code setup
 
-1. Mở thư mục TPU trong VS Code
-2. Cài extension: Python (ms-python.python)
-3. Cài extension: Pylance (ms-python.vscode-pylance)
-4. Reload window: `Ctrl+Shift+P` → "Developer: Reload Window"
-5. Kiểm tra PROBLEMS tab → không có lỗi đỏ
+1. Open the TPU folder in VS Code
+2. Install the Python extension (ms-python.python)
+3. Install the Pylance extension (ms-python.vscode-pylance)
+4. Reload the window
+5. Check the Problems panel for errors
 
-## Bước 7: Xác nhận hoạt động
-
-Chạy validation một lần nữa:
+## Step 7. Final validation
 ```bash
 python validate_setup.py
 ```
 
-Kết quả mong đợi:
+Expected result:
 ```
 Passed: 8/8
-[OK] ALL CHECKS PASSED! Project is ready to use.
+ALL CHECKS PASSED
 ```
 
 ---
 
-## Troubleshooting nâng cao
+## Advanced troubleshooting
 
-### Lỗi encoding trên Windows
+### Windows encoding errors
 ```powershell
-# Set encoding cho terminal
 $env:PYTHONIOENCODING="utf-8"
 python -m iss.run_simulator
 ```
 
-### Lỗi Pylance "attribute not found"
-```
-Đã fix bằng .vscode/settings.json
-Nếu vẫn lỗi → Reload VS Code window
-```
+### Pylance attribute not found
 
-### Import lỗi dù có __init__.py
+This is addressed in .vscode/settings.json. Reload the VS Code window if it persists.
+
+### Import errors with __init__.py present
 ```bash
-# Xóa cache Python
 rm -rf iss/__pycache__
 rm -rf assembler/__pycache__
+```
 
-# Hoặc trên Windows:
+On Windows:
+```powershell
 rmdir /s iss\__pycache__
 rmdir /s assembler\__pycache__
 ```
 
 ---
 
-Khi tất cả checks PASS, bạn có thể:
+After all checks pass, you can:
 
-- Chạy simulator: `python -m iss.run_simulator`
-- Chạy assembler: `cd assembler && python assembler.py`
-- Chạy tests: `cd iss && python test_loadstore.py`
-- Sửa code và commit: `git add . && git commit -m "..." && git push`
+- Run the simulator: python -m iss.run_simulator
+- Run the assembler: cd assembler and python assembler.py
+- Run tests: cd iss and python test_loadstore.py
+- Commit changes: git add . and git commit -m "message" and git push
