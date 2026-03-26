@@ -16,17 +16,16 @@ ELEMENTS_PER_ROW_TR = TRLEN // ELEN
 
 # Bảng tra cứu 3-bit cho thanh ghi Ma trận (Từ assembler.py)
 MATRIX_REG_MAP = {
-    # Accumulator registers (acc0-acc3) mapped to 0-3
-    "acc0": 0b000,
-    "acc1": 0b001,
-    "acc2": 0b010,
-    "acc3": 0b011,
-    # Tile registers (tr4-tr11) mapped to 4-11
-    # Note: tr0-tr3 alias to acc0-acc3 for backwards compatibility
-    "tr0": 0b000,   # alias for acc0
-    "tr1": 0b001,   # alias for acc1
-    "tr2": 0b010,   # alias for acc2
-    "tr3": 0b011,   # alias for acc3
+    # Tile registers (tr0-tr3) - general purpose
+    "tr0": 0b000,
+    "tr1": 0b001,
+    "tr2": 0b010,
+    "tr3": 0b011,
+    # Accumulator registers (acc0-acc3) mapped to tr4-tr7
+    "acc0": 0b100,  # alias for tr4
+    "acc1": 0b101,  # alias for tr5
+    "acc2": 0b110,  # alias for tr6
+    "acc3": 0b111,  # alias for tr7
     "tr4": 0b100,
     "tr5": 0b101,
     "tr6": 0b110,

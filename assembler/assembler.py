@@ -216,7 +216,7 @@ class Assembler:
         md_ms3 = self._encode_matrix_register(tokens[1])
         
         # Toán hạng 2: (rs1)
-        match = re.match(r'\((x\d+|[a-z][a-z0-9]+)\)', tokens[2].lower())
+        match = re.match(r'\(\s*(x\d+|[a-z][a-z0-9]+)\s*\)', tokens[2].lower())
         if not match:
             raise ValueError(f"Toán hạng thứ 2 của Load/Store phải là (rs1), ví dụ: (x5) hoặc (sp). Nhận được: '{tokens[2]}'")
         rs1 = self._encode_gpr(match.group(1))
@@ -269,11 +269,20 @@ class Assembler:
             ms1_val = self._encode_matrix_register(tokens[3])
 
         elif variant == "md_ms2_ms1_imm3_direct":
-            if len(tokens) != 4: raise ValueError(f"Lệnh {mnemonic} yêu cầu 3 toán hạng: md, ms2, imm3.")
+            if len(tokens) != 4: raise ValueError(f"Lệnh {mnemonic} yêu cầu 3 toán hạng: md, ms2, ms1[imm3].")
             md_val = self._encode_matrix_register(tokens[1])
             ms2_val = self._encode_matrix_register(tokens[2])
-            ctrl = int(tokens[3]) & 0x7 # imm3
-            ms1_val = 0 # ms1 không được dùng trong định dạng này
+            
+            # Parse ms1[imm3] format
+            third_operand = tokens[3]
+            if '[' in third_operand and ']' in third_operand:
+                # Format: ms1[imm3]
+                reg_part = third_operand.split('[')[0]
+                imm_part = third_operand.split('[')[1].rstrip(']')
+                ms1_val = self._encode_matrix_register(reg_part)
+                ctrl = int(imm_part) & 0x7  # imm3 (0-7)
+            else:
+                raise ValueError(f"Lệnh {mnemonic} yêu cầu định dạng ms1[imm3], ví dụ: acc2[3]")
 
         else:
             raise ValueError(f"Variant '{variant}' không được hỗ trợ cho lệnh Element-wise.")
@@ -350,16 +359,14 @@ class Assembler:
         machine_codes = []
         print(f"Assembling '{input_path}' -> '{output_path}'")
         for line_num, line in enumerate(lines, 1):
-            line_stripped = line.split('#')[0].strip()
-            if not line_stripped:
-                continue
             try:
                 code = self.assemble_line(line)
                 if code is not None:
                     machine_codes.append(f"{code:032b}")
-                    print(f"  {line_stripped:<30} -> {code:032b}")
+                    # In ra dòng gốc đã được làm sạch (lấy từ assemble_line xử lý nội bộ, ở đây chỉ in để debug)
+                    print(f"  {line.strip():<30} -> {code:032b}")
             except ValueError as e:
-                print(f"Lỗi ở dòng {line_num}: {e}\n  > {line_stripped}")
+                print(f"Lỗi ở dòng {line_num}: {e}\n  > {line.strip()}")
                 return False
         
         try:
@@ -377,7 +384,7 @@ class Assembler:
 def main():
     base_dir = Path(__file__).resolve().parent
     input_path  = base_dir / "assembly.txt"
-    output_path = base_dir / "machine_code.txt" # Sửa tên file output
+    output_path = base_dir / "machine_code.txt" 
 
     # 1. Tạo đối tượng Assembler
     asm = Assembler()
@@ -387,4 +394,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

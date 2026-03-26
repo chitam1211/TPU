@@ -140,10 +140,10 @@ def reset_all_files_to_default():
             f.write("# Ví dụ: 0x3E8: 0A 14 1E\n")
             
             # --- BẮT ĐẦU CẢI TIẾN ---
-            f.write("# RAM 1KB (từ 0x000 đến 0x3FF)\n")
+            f.write("# RAM 2KB (từ 0x000 đến 0x7FF)\n")
             
             bytes_per_line = 16
-            total_bytes = 1024 # Tạo sẵn 1KB RAM rỗng
+            total_bytes = 2048 # Tạo sẵn 2KB RAM rỗng
             
             # Tạo một chuỗi "00 00 00 ..." dài 16 byte
             zero_byte_str = " ".join(["00"] * bytes_per_line) 
@@ -162,4 +162,3 @@ def reset_all_files_to_default():
 
 # if __name__ == "__main__":
 #     main()
-

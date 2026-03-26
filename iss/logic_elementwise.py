@@ -39,8 +39,8 @@ class ElementwiseLogic:
         
         Args:
             reg_idx: Register index (0-7)
-                0-3: acc0-acc3 (also aliased as tr0-tr3)
-                4-7: tr4-tr7 (pure tile registers)
+                0-3: tr0-tr3 (pure tile registers)
+                4-7: acc0-acc3 (also aliased as tr4-tr7)
             is_float: True for float operations, False for integer
             
         Returns:
@@ -49,13 +49,13 @@ class ElementwiseLogic:
             - actual_idx: Index within that storage (always 0-3)
         """
         if reg_idx < 4:
-            # Accumulator registers (acc0-acc3, aliased as tr0-tr3)
-            storage = self.acc_float if is_float else self.acc_int
+            # Tile registers (tr0-tr3 map to tr_int[0-3])
+            storage = self.tr_float if is_float else self.tr_int
             return storage, reg_idx
         else:
-            # Tile registers (tr4-tr7 map to tr_int[0-3])
-            storage = self.tr_float if is_float else self.tr_int
-            return storage, reg_idx - 4  # tr4→0, tr5→1, tr6→2, tr7→3
+            # Accumulator registers (acc0-acc3, aliased as tr4-tr7)
+            storage = self.acc_float if is_float else self.acc_int
+            return storage, reg_idx - 4  # tr4→acc0, tr5→acc1, tr6→acc2, tr7→acc3
     
     def _read_register_element(self, reg_idx, row, col, is_float):
         """Read a single element from register (acc or tr)."""
@@ -89,11 +89,20 @@ class ElementwiseLogic:
                 # Lấy toán hạng 2 (luôn là matrix) - supports both acc and tr
                 val2 = self._read_register_element(ms2_idx, i, j, is_float=False)
                 
-                # Lấy toán hạng 1 (matrix hoặc vector) - supports both acc and tr
-                if is_matrix_matrix:
+                # Check if this is immediate variant
+                # Immediate variant: ctrl != "111" (immediate encoded in ctrl)
+                # Register variant: ctrl == "111" (use ms1 register value)
+                is_immediate = (ctrl != "111")
+                
+                # Lấy toán hạng 1 (matrix, vector, or immediate)
+                if is_immediate:
+                    # For immediate variants, use ctrl as immediate value
+                    # ms1_idx is the index register (not used, just for syntax)
+                    val1 = int(ctrl, 2) & 0x7  # imm3 (0-7)
+                elif is_matrix_matrix:
                     val1 = self._read_register_element(ms1_idx, i, j, is_float=False)
                 else:
-                    val1 = self._read_register_element(ms1_idx, vector_row_idx, j, is_float=False) # 
+                    val1 = self._read_register_element(ms1_idx, vector_row_idx, j, is_float=False) 
 
                 # Thực hiện phép toán dựa trên func4
                 # Semantics: md = ms2 op ms1 (val2 op val1)
@@ -117,13 +126,13 @@ class ElementwiseLogic:
                     u_val1 = val1 & 0xFFFFFFFF
                     u_val2 = val2 & 0xFFFFFFFF
                     res = u_val1 if u_val1 < u_val2 else u_val2
-                elif func4 == "1000": # msrl.w 
-                    shift_amount = val1 & 0x1F # Chỉ dùng 5 bit thấp
+                elif func4 == "1000": # msrl.w or msrl.w.mv.i
+                    shift_amount = val1 & 0x1F # val1 is already immediate or register value
                     res = (val2 & 0xFFFFFFFF) >> shift_amount
-                elif func4 == "1001": # msll.w 
+                elif func4 == "1001": # msll.w or msll.w.mv.i
                     shift_amount = val1 & 0x1F
                     res = val2 << shift_amount
-                elif func4 == "1010": # msra.w 
+                elif func4 == "1010": # msra.w or msra.w.mv.i
                     shift_amount = val1 & 0x1F
                     res = val2 >> shift_amount # Dịch phải số học (Python tự xử lý)
                 else:
@@ -234,7 +243,7 @@ class ElementwiseLogic:
         d_size_str = instruction[20:22]
         md_bin     = instruction[22:25]
         
-        # Chuyển đổi index - support both acc (0-3) and tr (4-7) registers
+        # Chuyển đổi index - tr0-tr3 (0-3), acc0-acc3/tr4-tr7 (4-7)
         md_idx  = int(md_bin, 2)
         ms1_idx = int(ms1_bin, 2)
         ms2_idx = int(ms2_bin, 2)

@@ -1,13 +1,11 @@
-# Test: mlbe8/msbe8
-# Load/Store 8-bit integer (tr2)
+# Test: msra.w.mv.i
+# Arithmetic Shift Right with Immediate (INT32)
+# Operation: md = ms2 op ms1
 
-# Setup tile dimensions
+# Setup tile dimensions (4x4)
 msettilemi 4
 msettileki 4
 msettileni 4
 
-# Load instruction
-mlbe8 tr2, (x5), x6
-
-# Store instruction
-msbe8 tr2, (x12), x6
+# Perform element-wise operation
+msra.w.mv.i acc2, acc0, acc3[2]

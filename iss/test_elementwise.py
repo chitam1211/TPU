@@ -34,6 +34,9 @@ import random
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent))
 
+# Import binary printing utilities
+from iss.binary_print_utils import print_operands_binary
+
 # Test cases definition
 TEST_CASES = [
     # Integer operations (INT32)
@@ -222,15 +225,15 @@ TEST_CASES = [
         'data_type': 'float16',
     },
     
-    # Matrix register tests (tr4-tr7)
+    # Matrix register tests (tr0-tr3)
     {
         'name': 'madd.w (tile)',
         'description': 'Element-wise Integer Addition with Tile Registers (INT32)',
-        'instr': 'madd.w tr4, tr6, tr5',
-        'explanation': 'Matrix ADD Word on Tile Regs: tr4[i][j] = tr6[i][j] + tr5[i][j] (signed 32-bit)',
-        'md_reg': 4,
-        'ms1_reg': 5,
-        'ms2_reg': 6,
+        'instr': 'madd.w tr0, tr2, tr1',
+        'explanation': 'Matrix ADD Word on Tile Regs: tr0[i][j] = tr2[i][j] + tr1[i][j] (signed 32-bit)',
+        'md_reg': 0,
+        'ms1_reg': 1,
+        'ms2_reg': 2,
         'ms1_init': 15,
         'ms2_init': 25,
         'operation': lambda a, b: a + b,
@@ -241,11 +244,11 @@ TEST_CASES = [
     {
         'name': 'msub.w (tile)',
         'description': 'Element-wise Integer Subtraction with Tile Registers (INT32)',
-        'instr': 'msub.w tr4, tr6, tr5',
-        'explanation': 'Matrix SUB Word on Tile Regs: tr4[i][j] = tr6[i][j] - tr5[i][j] (signed 32-bit)',
-        'md_reg': 4,
-        'ms1_reg': 5,
-        'ms2_reg': 6,
+        'instr': 'msub.w tr0, tr2, tr1',
+        'explanation': 'Matrix SUB Word on Tile Regs: tr0[i][j] = tr2[i][j] - tr1[i][j] (signed 32-bit)',
+        'md_reg': 0,
+        'ms1_reg': 1,
+        'ms2_reg': 2,
         'ms1_init': 10,
         'ms2_init': 30,
         'operation': lambda a, b: a - b,
@@ -256,11 +259,11 @@ TEST_CASES = [
     {
         'name': 'mfadd.s (tile)',
         'description': 'Element-wise Float Addition with Tile Registers (FP32)',
-        'instr': 'mfadd.s tr4, tr6, tr5',
-        'explanation': 'Matrix Float ADD Single on Tile Regs: tr4[i][j] = tr6[i][j] + tr5[i][j] (FP32)',
-        'md_reg': 4,
-        'ms1_reg': 5,
-        'ms2_reg': 6,
+        'instr': 'mfadd.s tr0, tr2, tr1',
+        'explanation': 'Matrix Float ADD Single on Tile Regs: tr0[i][j] = tr2[i][j] + tr1[i][j] (FP32)',
+        'md_reg': 0,
+        'ms1_reg': 1,
+        'ms2_reg': 2,
         'ms1_init': 5.5,
         'ms2_init': 10.25,
         'operation': lambda a, b: a + b,
@@ -271,11 +274,11 @@ TEST_CASES = [
     {
         'name': 'mfmul.h (tile)',
         'description': 'Element-wise Float Multiplication with Tile Registers (FP16)',
-        'instr': 'mfmul.h tr5, tr7, tr6',
-        'explanation': 'Matrix Float MUL Half on Tile Regs: tr5[i][j] = tr7[i][j] * tr6[i][j] (FP16)',
-        'md_reg': 5,
-        'ms1_reg': 6,
-        'ms2_reg': 7,
+        'instr': 'mfmul.h tr1, tr3, tr2',
+        'explanation': 'Matrix Float MUL Half on Tile Regs: tr1[i][j] = tr3[i][j] * tr2[i][j] (FP16)',
+        'md_reg': 1,
+        'ms1_reg': 2,
+        'ms2_reg': 3,
         'ms1_init': 2.5,
         'ms2_init': 3.0,
         'operation': lambda a, b: a * b,
@@ -356,6 +359,56 @@ TEST_CASES = [
         'operation': lambda a, b: min((a & 0xFFFFFFFF), (b & 0xFFFFFFFF)),  # Unsigned comparison
         'is_float': False,
         'data_type': 'int32',
+    },
+    
+    # Shift operations with immediate (INT32)
+    {
+        'name': 'msrl.w.mv.i',
+        'description': 'Logical Shift Right with Immediate (INT32)',
+        'instr': 'msrl.w.mv.i acc0, acc2, acc1[3]',  # md, ms2, ms1[imm3]
+        'explanation': 'Matrix Shift Right Logical Immediate: md[i][j] = ms2[i][j] >> imm (unsigned, fills 0s from left)',
+        'md_reg': 0,
+        'ms1_reg': 1,  # ms1 register (used for indexing)
+        'ms2_reg': 2,
+        'ms1_init': 0,  # ms1 value not used (only index matters)
+        'ms2_init': 64,  # Value to shift (64 >> 3 = 8)
+        'shift_amount': 3,  # Immediate shift amount (3 bits: 0-7)
+        'operation': lambda ms2, imm: (ms2 & 0xFFFFFFFF) >> (imm & 0x1F),  # ms2 >> imm
+        'is_float': False,
+        'data_type': 'int32',
+        'is_immediate': True,
+    },
+    {
+        'name': 'msll.w.mv.i',
+        'description': 'Logical Shift Left with Immediate (INT32)',
+        'instr': 'msll.w.mv.i acc1, acc3, acc2[4]',  # md, ms2, ms1[imm3]
+        'explanation': 'Matrix Shift Left Logical Immediate: md[i][j] = ms2[i][j] << imm (fills 0s from right)',
+        'md_reg': 1,
+        'ms1_reg': 2,  # ms1 register (used for indexing)
+        'ms2_reg': 3,
+        'ms1_init': 0,  # ms1 value not used (only index matters)
+        'ms2_init': 7,  # Value to shift (7 << 4 = 112)
+        'shift_amount': 4,  # Immediate shift amount (3 bits: 0-7)
+        'operation': lambda ms2, imm: (ms2 << (imm & 0x1F)) & 0xFFFFFFFF,  # ms2 << imm
+        'is_float': False,
+        'data_type': 'int32',
+        'is_immediate': True,
+    },
+    {
+        'name': 'msra.w.mv.i',
+        'description': 'Arithmetic Shift Right with Immediate (INT32)',
+        'instr': 'msra.w.mv.i acc2, acc0, acc3[2]',  # md, ms2, ms1[imm3]
+        'explanation': 'Matrix Shift Right Arithmetic Immediate: md[i][j] = ms2[i][j] >> imm (preserves sign bit)',
+        'md_reg': 2,
+        'ms1_reg': 3,  # ms1 register (used for indexing)
+        'ms2_reg': 0,
+        'ms1_init': 0,  # ms1 value not used (only index matters)
+        'ms2_init': -20,  # Negative value to shift (test sign extension: -20 >> 2 = -5)
+        'shift_amount': 2,  # Immediate shift amount (3 bits: 0-7)
+        'operation': lambda ms2, imm: ms2 >> (imm & 0x1F) if ms2 >= 0 else (ms2 >> (imm & 0x1F)) | ~(0xFFFFFFFF >> (imm & 0x1F)),  # Arithmetic shift
+        'is_float': False,
+        'data_type': 'int32',
+        'is_immediate': True,
     },
 ]
 
@@ -484,14 +537,14 @@ def reset_matrix_registers(test_info):
         test_info['md_reg']: md_val,
     }
     
-    # Write matrix file
+    # Write matrix file (only 4 tile registers: tr0-tr3)
     with open(matrix_file, 'w', encoding='utf-8') as f:
         if test_info['is_float']:
-            f.write("--- Tile Registers (tr0-tr7) (Floating-Point | 32-bit representation)---\n")
+            f.write("--- Tile Registers (tr0-tr3) (Floating-Point | 32-bit representation)---\n")
         else:
-            f.write("--- Tile Registers (tr0-tr7) (Integer Only)---\n")
+            f.write("--- Tile Registers (tr0-tr3) (Integer Only)---\n")
         
-        for tr_idx in range(8):
+        for tr_idx in range(4):  # Only 4 tile registers supported
             f.write(f"\ntr{tr_idx}:\n")
             value = reg_values.get(tr_idx, md_val)  # Default to 0
             
@@ -522,16 +575,19 @@ def reset_accumulator(test_info):
         lines = f.readlines()
     
     # Build initial values for each accumulator
-    ms1_val = test_info['ms1_init']
+    ms1_val = test_info.get('ms1_init', 0)  # Default to 0 for immediate variants
     ms2_val = test_info['ms2_init']
     md_val = 0.0 if test_info['is_float'] else 0  # Destination starts at 0
     
     # Map register numbers to values
     reg_values = {
-        test_info['ms1_reg']: ms1_val,
         test_info['ms2_reg']: ms2_val,
         test_info['md_reg']: md_val,
     }
+    
+    # Add ms1 if it exists
+    if test_info.get('ms1_reg') is not None:
+        reg_values[test_info['ms1_reg']] = ms1_val
     
     # Process file and update values
     new_lines = []
@@ -668,6 +724,100 @@ def run_simulator(debug=False):
     return result.returncode == 0
 
 
+def read_register_values(test_info):
+    """
+    Read register values from output files and return as dictionary.
+    Returns dict mapping register names to 4x4 matrices.
+    """
+    iss_dir = SCRIPT_DIR
+    reg_values = {}
+    
+    use_matrix = test_info.get('use_matrix_regs', False)
+    
+    if use_matrix:
+        # Read from matrix.txt or matrix_float.txt
+        if test_info['is_float']:
+            matrix_file = iss_dir / 'matrix_float.txt'
+        else:
+            matrix_file = iss_dir / 'matrix.txt'
+        
+        if not matrix_file.exists():
+            return reg_values
+        
+        with open(matrix_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        # Parse all relevant matrix registers (md, ms1, ms2)
+        reg_indices = [test_info['md_reg'], test_info['ms1_reg'], test_info['ms2_reg']]
+        
+        for reg_idx in reg_indices:
+            tr_reg = f"tr{reg_idx}"
+            matrix = []
+            in_target = False
+            
+            for line in lines:
+                if f'{tr_reg}:' in line:
+                    in_target = True
+                    continue
+                if in_target and line.strip().startswith('Row'):
+                    parts = line.split(':')[1].split('(')[0].strip().split()
+                    try:
+                        if test_info['is_float']:
+                            row_values = [float(x) for x in parts]
+                        else:
+                            row_values = [int(x) for x in parts]
+                        matrix.append(row_values)
+                    except:
+                        continue
+                if in_target and any(f'tr{i}:' in line for i in range(4) if i != reg_idx):
+                    break
+            
+            if len(matrix) == 4:
+                reg_values[tr_reg] = matrix
+    else:
+        # Read from acc.txt or acc_float.txt
+        if test_info['is_float']:
+            acc_file = iss_dir / 'acc_float.txt'
+        else:
+            acc_file = iss_dir / 'acc.txt'
+        
+        if not acc_file.exists():
+            return reg_values
+        
+        with open(acc_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        # Parse all relevant accumulator registers (md, ms1, ms2)
+        reg_indices = [test_info['md_reg'], test_info['ms1_reg'], test_info['ms2_reg']]
+        
+        for reg_idx in reg_indices:
+            acc_reg = f"acc{reg_idx}"
+            matrix = []
+            in_target = False
+            
+            for line in lines:
+                if f'{acc_reg}:' in line:
+                    in_target = True
+                    continue
+                if in_target and line.strip().startswith('Row'):
+                    parts = line.split(':')[1].split('(')[0].strip().split()
+                    try:
+                        if test_info['is_float']:
+                            row_values = [float(x) for x in parts]
+                        else:
+                            row_values = [int(x) for x in parts]
+                        matrix.append(row_values)
+                    except:
+                        continue
+                if in_target and any(f'acc{i}:' in line for i in range(4) if i != reg_idx):
+                    break
+            
+            if len(matrix) == 4:
+                reg_values[acc_reg] = matrix
+    
+    return reg_values
+
+
 def verify_elementwise_result(test_info):
     """Verify element-wise operation result"""
     iss_dir = SCRIPT_DIR
@@ -713,7 +863,7 @@ def verify_elementwise_result(test_info):
                     result_matrix.append(row_values)
                 except:
                     continue
-            if in_target and any(f'tr{i}:' in line for i in range(8) if i != test_info['md_reg']):
+            if in_target and any(f'tr{i}:' in line for i in range(4) if i != test_info['md_reg']):
                 break
     else:
         # Read from acc.txt or acc_float.txt (original logic)
@@ -761,11 +911,21 @@ def verify_elementwise_result(test_info):
     if len(result_matrix) != 4:
         return False, f"Could not parse result matrix (got {len(result_matrix)} rows)"
     
-    # Expected: ms2 op ms1 for all elements
-    ms1_val = test_info['ms1_init']
-    ms2_val = test_info['ms2_init']
-    operation = test_info['operation']
-    expected = operation(ms2_val, ms1_val)  # md = ms2 op ms1, so operation(ms2, ms1)
+    # Expected: ms2 op ms1 for all elements (or ms2 op imm for immediate variants)
+    is_immediate = test_info.get('is_immediate', False)
+    
+    if is_immediate:
+        # For immediate variants: md = ms2 op imm
+        ms2_val = test_info['ms2_init']
+        shift_amount = test_info['shift_amount']
+        operation = test_info['operation']
+        expected = operation(ms2_val, shift_amount)  # operation(ms2, imm)
+    else:
+        # For register variants: md = ms2 op ms1
+        ms1_val = test_info['ms1_init']
+        ms2_val = test_info['ms2_init']
+        operation = test_info['operation']
+        expected = operation(ms2_val, ms1_val)  # operation(ms2, ms1)
     
     # Tolerance based on data type (realistic FP precision after fixing input rounding bug)
     if test_info['data_type'] == 'float32':
@@ -821,6 +981,28 @@ def display_results(test_info):
     iss_dir = SCRIPT_DIR
     use_matrix = test_info.get('use_matrix_regs', False)
     
+    # Read register values (after operation)
+    reg_values = read_register_values(test_info)
+    
+    # Create "before" values for destination register (always 0)
+    before_values = {}
+    if reg_values:
+        # Get destination register name
+        if use_matrix:
+            dest_reg = f"tr{test_info['md_reg']}"
+        else:
+            dest_reg = f"acc{test_info['md_reg']}"
+        
+        # Create before matrix (all zeros)
+        if test_info['is_float']:
+            before_matrix = [[0.0, 0.0, 0.0, 0.0] for _ in range(4)]
+        else:
+            before_matrix = [[0, 0, 0, 0] for _ in range(4)]
+        before_values[dest_reg] = before_matrix
+        
+        # Print with before/after
+        print_operands_binary(test_info['instr'], reg_values, test_info['data_type'], before_values)
+    
     if use_matrix:
         # Display matrix registers
         if test_info['is_float']:
@@ -833,10 +1015,12 @@ def display_results(test_info):
         if matrix_file.exists():
             with open(matrix_file, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
+                # Show both source registers
                 show_regs = [
                     f"tr{test_info['ms1_reg']}",
                     f"tr{test_info['ms2_reg']}",
                 ]
+                
                 current_reg = None
                 
                 for line in lines:
@@ -880,7 +1064,7 @@ def display_results(test_info):
                     elif in_target and line.strip().startswith('Row'):
                         # Just print the line as-is since it's already formatted correctly
                         print(f"    {line.strip()}")
-                    elif in_target and any(f'tr{i}:' in line for i in range(8)):
+                    elif in_target and any(f'tr{i}:' in line for i in range(4)):
                         break
     else:
         # Display accumulator registers (original logic)
@@ -894,10 +1078,12 @@ def display_results(test_info):
         if acc_file.exists():
             with open(acc_file, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
+                # Show both source registers
                 show_regs = [
                     f"acc{test_info['ms1_reg']}",
                     f"acc{test_info['ms2_reg']}",
                 ]
+                
                 current_reg = None
                 
                 for line in lines:
@@ -961,7 +1147,14 @@ def run_single_test(test_info, test_num, total_tests, use_random=False):
     print("\n" + "-"*80)
     print("[INSTRUCTION INFO]")
     print(f"  Instruction: {test_info['name']}")
-    print(f"  Format    : {test_info['name'].split()[0]} md, ms2, ms1")
+    
+    # Check if immediate variant
+    is_immediate = test_info.get('is_immediate', False)
+    if is_immediate:
+        print(f"  Format    : {test_info['name'].split()[0]} md, ms2, imm")
+    else:
+        print(f"  Format    : {test_info['name'].split()[0]} md, ms2, ms1")
+    
     print(f"  Assembly  : {test_info['instr']}")
     print(f"  Operation : {test_info.get('explanation', 'N/A')}")
     print(f"  Data Type : {test_info['data_type'].upper()}")
@@ -970,9 +1163,14 @@ def run_single_test(test_info, test_num, total_tests, use_random=False):
     # Generate random values if requested
     if use_random:
         ms1_val, ms2_val = generate_random_values(test_info)
-        test_info['ms1_init'] = ms1_val
-        test_info['ms2_init'] = ms2_val
-        print(f"\n[Random Mode] Generated: ms1={ms1_val}, ms2={ms2_val}")
+        # For immediate variants, only update ms2
+        if test_info.get('is_immediate', False):
+            test_info['ms2_init'] = ms2_val
+            print(f"\n[Random Mode] Generated: ms2={ms2_val}, shift_amount={test_info['shift_amount']} (immediate)")
+        else:
+            test_info['ms1_init'] = ms1_val
+            test_info['ms2_init'] = ms2_val
+            print(f"\n[Random Mode] Generated: ms1={ms1_val}, ms2={ms2_val}")
     
     # Check if using matrix registers
     use_matrix = test_info.get('use_matrix_regs', False)
@@ -988,9 +1186,18 @@ def run_single_test(test_info, test_num, total_tests, use_random=False):
         # Step 1: Reset accumulators to initial values
         print("\n[Step 1] Resetting accumulators...")
         reset_accumulator(test_info)
-        print(f"  [OK] acc{test_info['ms1_reg']} = {test_info['ms1_init']}")
-        print(f"       acc{test_info['ms2_reg']} = {test_info['ms2_init']}")
-        print(f"       acc{test_info['md_reg']} = 0")
+        
+        # Display initial values
+        is_immediate = test_info.get('is_immediate', False)
+        if is_immediate:
+            print(f"  [OK] acc{test_info['ms1_reg']} = {test_info['ms1_init']} (index register)")
+            print(f"       acc{test_info['ms2_reg']} = {test_info['ms2_init']}")
+            print(f"       shift amount = {test_info['shift_amount']} (immediate from acc{test_info['ms1_reg']}[{test_info['shift_amount']}])")
+            print(f"       acc{test_info['md_reg']} = 0 (destination)")
+        else:
+            print(f"  [OK] acc{test_info['ms1_reg']} = {test_info['ms1_init']}")
+            print(f"       acc{test_info['ms2_reg']} = {test_info['ms2_init']}")
+            print(f"       acc{test_info['md_reg']} = 0")
     
     # Step 2: Create assembly
     print("\n[Step 2] Creating assembly.txt...")

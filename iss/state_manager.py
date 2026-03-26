@@ -149,10 +149,10 @@ def load_state_from_files(sim):
     except Exception as e: print(f"  [Warning] Could not load CSRs. {e}")
     
     # 3. Load 4 matrix files
-    # matrix.txt contains tr4-tr7 (file idx 4-7, array idx 0-3)
-    _load_matrix_file(os.path.join(script_dir, "matrix.txt"), sim.matrix_accelerator.tr_int, is_float_file=False, start_idx=4)
+    # matrix.txt contains tr0-tr3 (pure tile registers)
+    _load_matrix_file(os.path.join(script_dir, "matrix.txt"), sim.matrix_accelerator.tr_int, is_float_file=False, start_idx=0)
     _load_matrix_file(os.path.join(script_dir, "acc.txt"), sim.matrix_accelerator.acc_int, is_float_file=False, start_idx=0)
-    _load_matrix_file(os.path.join(script_dir, "matrix_float.txt"), sim.matrix_accelerator.tr_float, is_float_file=True, start_idx=4)
+    _load_matrix_file(os.path.join(script_dir, "matrix_float.txt"), sim.matrix_accelerator.tr_float, is_float_file=True, start_idx=0)
     _load_matrix_file(os.path.join(script_dir, "acc_float.txt"), sim.matrix_accelerator.acc_float, is_float_file=True, start_idx=0)
     print("  Matrix registers loaded.")
     
@@ -277,11 +277,12 @@ def save_state_to_files(sim):
     except IOError as e: print(f"  [Error] Error writing status.txt: {e}")
 
     
-    # 3. Ghi 4 file Ma trận (ONLY tr4-tr7 - Pure Tile Registers)
-    # SPECS: tr0-tr3 = acc0-acc3 (alias), chỉ tr4-tr7 là thanh ghi tile riêng biệt
+    # 3. Ghi 4 file Ma trận
+    # SPECS: tr0-tr3 = pure tile registers, tr4-tr7 = acc0-acc3 (alias)
+    # matrix.txt stores tr0-tr3 (pure tiles)
     _save_matrix_file(os.path.join(script_dir, "matrix.txt"), 
-                    "--- Tile Registers (tr4-tr7) (Integer Only)---", "tr", 
-                    sim.matrix_accelerator.tr_int, is_float_file=False, start_idx=4)
+                    "--- Tile Registers (tr0-tr3) (Integer Only)---", "tr", 
+                    sim.matrix_accelerator.tr_int, is_float_file=False, start_idx=0)
 
     # --- (THAY THẾ) LOGIC GHI ACC.TXT (INTEGER) ---
     try:
@@ -347,11 +348,11 @@ def save_state_to_files(sim):
         print(f"  [Error] Could not write to acc.txt: {e}")
     # --- KẾT THÚC THAY THẾ ACC.TXT ---
     
-    # Save matrix_float.txt (ONLY tr4-tr7)
+    # Save matrix_float.txt (tr0-tr3 pure tiles)
     _save_matrix_file(os.path.join(script_dir, "matrix_float.txt"), 
-                    "--- Tile Registers (tr4-tr7) (Floating-Point | 32-bit representation)---", "tr", 
+                    "--- Tile Registers (tr0-tr3) (Floating-Point | 32-bit representation)---", "tr", 
                     sim.matrix_accelerator.tr_float, is_float_file=True, 
-                    bits_converter_func=float_to_bits32, start_idx=4)
+                    bits_converter_func=float_to_bits32, start_idx=0)
 
 # --- (THAY THẾ) LOGIC GHI ACC_FLOAT.TXT ---
     try:
@@ -413,7 +414,7 @@ def save_state_to_files(sim):
         with open(os.path.join(script_dir, "memory.txt"), "w", encoding='utf-8') as f:
             f.write("# Format: <Hex Address>: <Hex bytes separated by spaces>\n")
             f.write("# Example: 0x3E8: 0A 14 1E\n")
-            f.write("# RAM 1KB (from 0x000 to 0x3FF)\n")
+            f.write("# RAM 2KB (from 0x000 to 0x7FF)\n")
             
             # Detect which addresses have non-zero data
             # Use adaptive stride: 4 bytes for 0x300+ (INT8), 8 bytes for 0x200+ (FP16), 16 bytes elsewhere
@@ -443,8 +444,8 @@ def save_state_to_files(sim):
                     f.write(f"0x{addr:03X}: {hex_str}\n")
                     written_addresses.add(addr)
             
-            # 0x320-0x3FF: 16-byte stride (rest)
-            for addr in range(0x320, 0x400, 0x10):
+            # 0x320-0x7FF: 16-byte stride (rest)
+            for addr in range(0x320, 0x800, 0x10):
                 if addr not in written_addresses:
                     bytes_data = sim.memory.read(addr, 16)
                     hex_str = ' '.join(f'{b:02X}' for b in bytes_data)

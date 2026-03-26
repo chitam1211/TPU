@@ -62,17 +62,17 @@ class MatrixAccelerator(ConfigLogic, MatmulLogic, LoadStoreLogic, ElementwiseLog
         
         # Khởi tạo các thanh ghi trong RAM
         # SPECS: Chỉ có 8 thanh ghi vật lý:
-        #   - acc0-acc3 (register 0-3): Accumulator registers
-        #   - tr4-tr7 (register 4-7): Pure tile registers
-        #   - tr0-tr3 là ALIAS của acc0-acc3, không phải bộ nhớ riêng
+        #   - tr0-tr3 (register 0-3): Pure tile registers
+        #   - acc0-acc3 (register 4-7): Accumulator registers
+        #   - tr4-tr7 là ALIAS của acc0-acc3, không phải bộ nhớ riêng
         
-        # Accumulator registers: acc0-acc3 (aka tr0-tr3)
-        self.acc_int = [[[0]*ELEMENTS_PER_ROW_TR for _ in range(ROWNUM)] for _ in range(4)]
-        self.acc_float = [[[0.0]*ELEMENTS_PER_ROW_TR for _ in range(ROWNUM)] for _ in range(4)]
-        
-        # Pure tile registers: tr4-tr7 only (4 registers, not 8)
+        # Pure tile registers: tr0-tr3 only (4 registers)
         self.tr_int = [[[0]*ELEMENTS_PER_ROW_TR for _ in range(ROWNUM)] for _ in range(4)]
         self.tr_float = [[[0.0]*ELEMENTS_PER_ROW_TR for _ in range(ROWNUM)] for _ in range(4)]
+        
+        # Accumulator registers: acc0-acc3 (aka tr4-tr7)
+        self.acc_int = [[[0]*ELEMENTS_PER_ROW_TR for _ in range(ROWNUM)] for _ in range(4)]
+        self.acc_float = [[[0.0]*ELEMENTS_PER_ROW_TR for _ in range(ROWNUM)] for _ in range(4)]
         
         # Metadata: Lưu destination bit-width cho mỗi accumulator
         # Tách riêng cho int và float vì chúng độc lập
@@ -82,19 +82,19 @@ class MatrixAccelerator(ConfigLogic, MatmulLogic, LoadStoreLogic, ElementwiseLog
     # Helper methods for register access (handles tr0-tr3 aliasing)
     def get_matrix_reg_int(self, reg_idx):
         """Get integer matrix register (tr0-tr7)
-        tr0-tr3 maps to acc0-acc3, tr4-tr7 maps to tr_int[0-3]"""
+        tr0-tr3 maps to tr_int[0-3], tr4-tr7 maps to acc0-acc3"""
         if reg_idx < 4:
-            return self.acc_int[reg_idx]  # tr0-tr3 = acc0-acc3
+            return self.tr_int[reg_idx]  # tr0-tr3 = pure tile registers
         else:
-            return self.tr_int[reg_idx - 4]  # tr4-tr7
+            return self.acc_int[reg_idx - 4]  # tr4-tr7 = acc0-acc3
     
     def get_matrix_reg_float(self, reg_idx):
         """Get float matrix register (tr0-tr7)
-        tr0-tr3 maps to acc0-acc3, tr4-tr7 maps to tr_float[0-3]"""
+        tr0-tr3 maps to tr_float[0-3], tr4-tr7 maps to acc0-acc3"""
         if reg_idx < 4:
-            return self.acc_float[reg_idx]  # tr0-tr3 = acc0-acc3
+            return self.tr_float[reg_idx]  # tr0-tr3 = pure tile registers
         else:
-            return self.tr_float[reg_idx - 4]  # tr4-tr7
+            return self.acc_float[reg_idx - 4]  # tr4-tr7 = acc0-acc3
     
     def set_matrix_reg_int(self, reg_idx, value):
         """Set integer matrix register (tr0-tr7)"""

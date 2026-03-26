@@ -29,6 +29,9 @@ import argparse
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent))
 
+# Import binary printing utilities
+from iss.binary_print_utils import print_instruction_binary
+
 # Test cases definition
 TEST_CASES = [
     {
@@ -173,17 +176,17 @@ def setup_initial_state():
     
     print(f"    [OK] GPR initialized")
     
-    # Initialize matrix registers (tr4-tr7) to zeros
+    # Initialize matrix registers (tr0-tr3) to zeros
     print("\n[2] Initializing matrix registers...")
     matrix_float_file = iss_dir / "matrix_float.txt"
     
     with open(matrix_float_file, 'w', encoding='utf-8') as f:
-        f.write("--- Tile Registers (tr4-tr7) (Floating-Point | 32-bit representation)---\n\n")
-        for i in range(4, 8):  # tr4-tr7
+        f.write("--- Tile Registers (tr0-tr3) (Floating-Point | 32-bit representation)---\n\n")
+        for i in range(0, 4):  # tr0-tr3 (pure tiles)
             f.write(f"tr{i}:\n")
             for row in range(4):
                 f.write(f"  Row {row}: 0.0 0.0 0.0 0.0 (0, 0, 0, 0)\n")
-            if i < 7:
+            if i < 3:
                 f.write("\n")
     
     print(f"    [OK] Matrix registers initialized")
@@ -334,10 +337,10 @@ def setup_test_data(test_info, use_random=False):
 
 def write_matrix_register(matrix_file, reg_index, data):
     """Write data to a specific tile register in matrix_float.txt"""
-    # reg_index: 0-3 for tr4-tr7
+    # reg_index: 0-3 for tr0-tr3 (pure tiles)
     if not matrix_file.exists():
         # Create new file
-        lines = ["--- Tile Registers (tr4-tr7) (Float Only) ---\n\n"]
+        lines = ["--- Tile Registers (tr0-tr3) (Float Only) ---\n\n"]
         for i in range(4):
             lines.append(f"tr{i}:\n")
             lines.append(f"  (Destination: FP32, 32-bit)\n")
@@ -665,7 +668,7 @@ def read_matrix_register(matrix_file, reg_index):
             parts = line.split(':')[1].split('(')[0].strip().split()
             row_values = [float(x) for x in parts]
             data.append(row_values)
-        if in_target and any(f'tr{i}:' in line for i in range(4, 8)):  # tr4-tr7
+        if in_target and any(f'tr{i}:' in line for i in range(0, 4)):  # tr0-tr3
             break
     
     return data if len(data) == 4 else [[0.0] * 4 for _ in range(4)]
@@ -692,6 +695,9 @@ def display_results(test_info):
     print("\n" + "="*80)
     print(f"RESULTS: {test_info['name']}")
     print("="*80)
+    
+    # Print binary instruction
+    print_instruction_binary(test_info['instr'])
     
     iss_dir = SCRIPT_DIR
     

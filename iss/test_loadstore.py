@@ -28,6 +28,9 @@ import argparse
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent))
 
+# Import binary printing utilities
+from iss.binary_print_utils import print_instruction_binary, print_register_binary_512bit
+
 # Test cases definition
 TEST_CASES = [
     {
@@ -98,6 +101,50 @@ TEST_CASES = [
     },
 ]
 
+# Global GPR state for lookup
+GPR_STATE = {
+    0: 0,       # zero
+    1: 0x100,   # base addr for mlae32 (float32 matrix)
+    2: 0x10,    # stride = 16 bytes (4 float32) - used for both load and store
+    3: 0x200,   # base addr for mlae16 (float16 data)
+    4: 0x08,    # stride = 8 bytes (4 float16) - used for both load and store
+    5: 0x300,   # base addr for mlbe8 (int8 data)
+    6: 0x04,    # stride = 4 bytes (4 int8) - used for both load and store
+    7: 0x100,   # base addr for mlce32 (column load from float32)
+    8: 0x10,    # stride for mlce32 column (16 bytes per row)
+    9: 0x140,   # output address for msae32
+    10: 0x10,   # output stride for column operations (msce32/msce8)
+    11: 0x240,  # output address for msae16
+    12: 0x340,  # output address for msbe8
+    13: 0x380,  # output address for msce32
+    14: 0x300,  # base addr for mlce8 (column load from int8)
+    15: 0x10,   # stride for mlce8 column (16 bytes per row, not 4!)
+    16: 0x3C0,  # output address for msce8
+    17: 0x400,  # base addr for mlbe32 (float32 B matrix)
+    18: 0x10,   # stride for mlbe32 (16 bytes per row)
+    19: 0x440,  # output address for msbe32
+}
+
+def get_instruction_params(instr_str):
+    """Extract base and stride registers and their values from instruction string.
+    Format example: 'mlae32 tr0, (x1), x2' -> base=x1, stride=x2
+    """
+    import re
+    # Match pattern like: instr reg, (xBase), xStride
+    match = re.search(r'\((x\d+)\),\s*(x\d+)', instr_str)
+    if match:
+        base_reg_name = match.group(1)
+        stride_reg_name = match.group(2)
+        
+        base_reg_num = int(base_reg_name[1:])
+        stride_reg_num = int(stride_reg_name[1:])
+        
+        base_val = GPR_STATE.get(base_reg_num, 0)
+        stride_val = GPR_STATE.get(stride_reg_num, 0)
+        
+        return base_reg_name, base_val, stride_reg_name, stride_val
+    return None, 0, None, 0
+
 
 def float32_to_hex(value):
     """Convert float32 to hex string"""
@@ -120,6 +167,65 @@ def float16_to_hex(value):
 def int8_to_hex(value):
     """Convert int8 to hex string"""
     return f'{value & 0xFF:02X}'
+
+
+def hex_to_float32(hex_str):
+    """Convert 4-byte hex string to float32"""
+    try:
+        byte_values = bytes.fromhex(hex_str.replace(' ', ''))
+        return struct.unpack('<f', byte_values)[0]
+    except (ValueError, struct.error):
+        return float('nan')
+
+def hex_to_float16(hex_str):
+    """Convert 2-byte hex string to float16"""
+    try:
+        import numpy as np
+        byte_values = bytes.fromhex(hex_str.replace(' ', ''))
+        return np.frombuffer(byte_values, dtype=np.float16)[0]
+    except (ImportError, ValueError, struct.error):
+        return float('nan')
+
+def hex_to_int8(hex_str):
+    """Convert 1-byte hex string to int8"""
+    try:
+        byte_value = int(hex_str, 16)
+        return byte_value if byte_value < 128 else byte_value - 256  # Handle signed int
+    except ValueError:
+        return 0
+
+def hex_to_uint32(hex_str):
+    """Convert 4-byte hex string to uint32"""
+    try:
+        return int(hex_str.replace(' ', ''), 16)
+    except ValueError:
+        return 0
+
+def hex_to_uint16(hex_str):
+    """Convert 2-byte hex string to uint16"""
+    try:
+        return int(hex_str.replace(' ', ''), 16)
+    except ValueError:
+        return 0
+
+def hex_to_uint8(hex_str):
+    """Convert 1-byte hex string to uint8"""
+    try:
+        return int(hex_str, 16)
+    except ValueError:
+        return 0
+
+def int_to_hex_le(val, width_bytes):
+    """Convert integer to little-endian hex string (e.g. 0x4214B975 -> '75 B9 14 42')"""
+    try:
+        val = int(val)
+        hex_bytes = []
+        for _ in range(width_bytes):
+            hex_bytes.append(f"{val & 0xFF:02X}")
+            val >>= 8
+        return " ".join(hex_bytes)
+    except:
+        return "00" * width_bytes
 
 
 def generate_random_test_data():
@@ -235,28 +341,8 @@ def setup_test_data():
     print("\n[2] Setting up gpr.txt...")
     gpr_file = iss_dir / "gpr.txt"
     
-    gpr_values = {
-        0: 0,       # zero
-        1: 0x100,   # base addr for mlae32 (float32 matrix)
-        2: 0x10,    # stride = 16 bytes (4 float32) - used for both load and store
-        3: 0x200,   # base addr for mlae16 (float16 data)
-        4: 0x08,    # stride = 8 bytes (4 float16) - used for both load and store
-        5: 0x300,   # base addr for mlbe8 (int8 data)
-        6: 0x04,    # stride = 4 bytes (4 int8) - used for both load and store
-        7: 0x100,   # base addr for mlce32 (column load from float32)
-        8: 0x10,    # stride for mlce32 column (16 bytes per row)
-        9: 0x140,   # output address for msae32
-        10: 0x10,   # output stride for column operations (msce32/msce8)
-        11: 0x240,  # output address for msae16
-        12: 0x340,  # output address for msbe8
-        13: 0x380,  # output address for msce32
-        14: 0x300,  # base addr for mlce8 (column load from int8)
-        15: 0x10,   # stride for mlce8 column (16 bytes per row, not 4!)
-        16: 0x3C0,  # output address for msce8
-        17: 0x400,  # base addr for mlbe32 (float32 B matrix)
-        18: 0x10,   # stride for mlbe32 (16 bytes per row)
-        19: 0x440,  # output address for msbe32
-    }
+    # Use global GPR_STATE
+    gpr_values = GPR_STATE
     
     abi_names = [
         "zero", "ra", "sp", "gp", "tp",
@@ -277,24 +363,30 @@ def setup_test_data():
     print(f"    [OK] GPR configured with base addresses and strides")
 
 
-def create_assembly_for_test(test_info):
-    """Create assembly.txt with only the current test pair"""
+def create_assembly_for_test(test_info, instruction_type='all'):
+    """Create assembly.txt with load, store, or both instructions."""
     assembler_dir = SCRIPT_DIR.parent / "assembler"
     assembly_file = assembler_dir / "assembly.txt"
+
+    load_part = f"# Load instruction\n{test_info['load_instr']}"
+    store_part = f"# Store instruction\n{test_info['store_instr']}"
+
+    if instruction_type == 'load':
+        instruction_body = load_part
+    elif instruction_type == 'store':
+        instruction_body = store_part
+    else:
+        instruction_body = f"{load_part}\n\n{store_part}"
     
     assembly_code = f"""# Test: {test_info['name']}
-# {test_info['description']}
+# Part: {instruction_type.upper()}
 
 # Setup tile dimensions
 msettilemi 4
 msettileki 4
 msettileni 4
 
-# Load instruction
-{test_info['load_instr']}
-
-# Store instruction
-{test_info['store_instr']}
+{instruction_body}
 """
     
     with open(assembly_file, 'w', encoding='utf-8') as f:
@@ -340,7 +432,7 @@ def run_simulator():
 
 
 def verify_test(test_info):
-    """Automatically verify if input matches output in memory"""
+    """Automatically verify if input matches output in memory (with tolerance for Floats)"""
     iss_dir = SCRIPT_DIR
     memory_file = iss_dir / "memory.txt"
     
@@ -367,25 +459,51 @@ def verify_test(test_info):
     output_addr = test_info['output_addr']
     test_name = test_info['name']
     
+    # --- Helper to compare values with tolerance ---
+    import math
+    def is_close(val1_hex, val2_hex, dtype):
+        if val1_hex == val2_hex: return True
+        
+        try:
+            if dtype == 'f32':
+                v1 = hex_to_float32(val1_hex)
+                v2 = hex_to_float32(val2_hex)
+                # Allow small error due to float conversion round-trips
+                # 1e-5 is sufficient for single precision round-trip noise
+                return math.isclose(v1, v2, rel_tol=1e-5, abs_tol=1e-5)
+            elif dtype == 'f16':
+                v1 = hex_to_float16(val1_hex)
+                v2 = hex_to_float16(val2_hex)
+                # Float16 has lower precision, allow larger tolerance
+                return math.isclose(v1, v2, rel_tol=1e-3, abs_tol=1e-3)
+            else:
+                return val1_hex == val2_hex
+        except:
+            return False
+
     # Check if this is a column operation
     is_column_op = 'mlc' in test_name or 'msc' in test_name
     
+    # Determine Data Type for tolerance check
+    dtype = 'int'
+    if 'e32' in test_name: dtype = 'f32'
+    elif 'e16' in test_name: dtype = 'f16'
+
     if is_column_op:
-        # Column operations: Matrix C load/store uses row-major in memory
-        # After fix, both input and output are row-major, can compare directly
-        
         # Determine stride and bytes per row
         if 'ce32' in test_name:
-            stride = 0x10  # Float32: 4 elements × 4 bytes = 16 bytes
+            stride = 0x10
             bytes_per_row = 16
+            elem_size = 4
         elif 'ce8' in test_name:
-            stride = 0x10  # Int8: 16 bytes per row in memory (with padding)
-            bytes_per_row = 4   # But only 4 bytes actually used (4 elements × 1 byte)
+            stride = 0x10
+            bytes_per_row = 4
+            elem_size = 1
         else:
             stride = 0x10
             bytes_per_row = 16
+            elem_size = 4
         
-        # Compare row by row (same as row operations)
         mismatches = []
         all_match = True
         
@@ -396,13 +514,29 @@ def verify_test(test_info):
             input_data = memory_data.get(in_addr, "")
             output_data = memory_data.get(out_addr, "")
             
-            # Get input bytes (only first bytes_per_row)
-            input_bytes = ' '.join(input_data.split()[:bytes_per_row])
-            output_bytes = ' '.join(output_data.split()[:bytes_per_row])
+            # Split into bytes
+            in_bytes = input_data.split()
+            out_bytes = output_data.split()
             
-            if input_bytes != output_bytes:
+            # Compare element by element
+            row_match = True
+            for i in range(0, bytes_per_row, elem_size):
+                if i + elem_size > len(in_bytes) or i + elem_size > len(out_bytes):
+                    row_match = False; break
+                
+                val_in = ' '.join(in_bytes[i:i+elem_size])
+                val_out = ' '.join(out_bytes[i:i+elem_size])
+                
+                if not is_close(val_in, val_out, dtype):
+                    row_match = False
+                    break
+            
+            if not row_match:
                 all_match = False
-                mismatches.append(f"Row {row}: Input '{input_bytes}' != Output '{output_bytes}'")
+                # Reconstruct full row string for display
+                in_str = ' '.join(in_bytes[:bytes_per_row])
+                out_str = ' '.join(out_bytes[:bytes_per_row])
+                mismatches.append(f"Row {row}: Input '{in_str}' != Output '{out_str}'")
         
         if all_match:
             return True, "All rows match ✓"
@@ -410,58 +544,56 @@ def verify_test(test_info):
             return False, "Mismatch found:\n    " + "\n    ".join(mismatches)
     
     else:
-        # Row operations: data is stored row-by-row
-        # Determine stride based on instruction name
+        # Row operations
         if 'e32' in test_name:
-            stride = 0x10  # Float32: 4 elements × 4 bytes = 16 bytes
+            stride = 0x10; bytes_per_row = 16; elem_size = 4
         elif 'e16' in test_name:
-            stride = 0x08  # Float16: 4 elements × 2 bytes = 8 bytes
+            stride = 0x08; bytes_per_row = 8; elem_size = 2
         elif 'e8' in test_name:
-            stride = 0x04  # Int8: 4 elements × 1 byte = 4 bytes
+            stride = 0x04; bytes_per_row = 4; elem_size = 1
         else:
-            stride = 0x10  # Default
+            stride = 0x10; bytes_per_row = 16; elem_size = 4
         
-        # Compare 4 rows with correct stride
-        mismatches = []
-        all_match = True
-        
-        # Extract required bytes per element
-        if 'e32' in test_name:
-            bytes_per_row = 16  # 4 elements × 4 bytes
-        elif 'e16' in test_name:
-            bytes_per_row = 8   # 4 elements × 2 bytes
-        elif 'e8' in test_name:
-            bytes_per_row = 4   # 4 elements × 1 byte
-        else:
-            bytes_per_row = 16
-        
-        # Collect all output data (may be in one line or multiple lines)
+        # Collect all output data
         output_all_bytes = []
         for row in range(4):
             out_addr = output_addr + row * stride
             if out_addr in memory_data:
                 output_all_bytes.extend(memory_data[out_addr].split())
         
-        # If output is empty but base address exists, get from base address
         if not output_all_bytes and output_addr in memory_data:
             output_all_bytes = memory_data[output_addr].split()
         
-        # Compare row by row
+        mismatches = []
+        all_match = True
+        
         for row in range(4):
             in_addr = input_addr + row * stride
             input_data = memory_data.get(in_addr, "")
+            in_bytes = input_data.split()[:bytes_per_row]
             
-            # Get input bytes
-            input_bytes = ' '.join(input_data.split()[:bytes_per_row])
-            
-            # Get output bytes from collected data
             start_idx = row * bytes_per_row
             end_idx = start_idx + bytes_per_row
-            output_bytes = ' '.join(output_all_bytes[start_idx:end_idx])
+            out_bytes = output_all_bytes[start_idx:end_idx]
             
-            if input_bytes != output_bytes:
+            # Compare element by element
+            row_match = True
+            if len(in_bytes) != len(out_bytes):
+                row_match = False
+            else:
+                for i in range(0, bytes_per_row, elem_size):
+                    val_in = ' '.join(in_bytes[i:i+elem_size])
+                    val_out = ' '.join(out_bytes[i:i+elem_size])
+                    
+                    if not is_close(val_in, val_out, dtype):
+                        row_match = False
+                        break
+            
+            if not row_match:
                 all_match = False
-                mismatches.append(f"Row {row}: Input '{input_bytes}' != Output '{output_bytes}'")
+                in_str = ' '.join(in_bytes)
+                out_str = ' '.join(out_bytes)
+                mismatches.append(f"Row {row}: Input '{in_str}' != Output '{out_str}'")
         
         if all_match:
             return True, "All rows match ✓"
@@ -469,147 +601,351 @@ def verify_test(test_info):
             return False, "Mismatch found:\n    " + "\n    ".join(mismatches)
 
 
-def display_results(test_info):
-    """Display results for current test"""
-    print("\n" + "="*80)
-    print(f"RESULTS: {test_info['name']}")
-    print("="*80)
+def display_register_state(test_info, success):
+    """Displays the state of the target register after a load operation."""
+    print("\n" + "-"*80)
+    print("[Verification of LOAD Operation]")
     
+    # Print binary instruction
+    print_instruction_binary(test_info['load_instr'])
+
+    if not success:
+        print("  ✗ FAIL - Simulator failed to run.")
+        print("-"*80)
+        return False
+
     iss_dir = SCRIPT_DIR
     
-    # Display register data
-    # Note: tr0-tr3 are aliases of acc0-acc3, so read from acc files
-    #       tr4-tr7 are pure tile registers, read from matrix files
-    if test_info['register_type'] == 'tr':
-        reg_num = test_info['register_num']
-        if reg_num < 4:
-            # tr0-tr3 alias acc0-acc3
-            file_name = 'acc_float.txt' if test_info['is_float'] else 'acc.txt'
-            actual_reg = f"acc{reg_num}"  # Physical register name
-        else:
-            # tr4-tr7 are pure tile registers
-            file_name = 'matrix_float.txt' if test_info['is_float'] else 'matrix.txt'
-            actual_reg = f"tr{reg_num - 4}"  # tr4→tr0 in matrix file
-        reg_name = f"tr{reg_num} (alias {actual_reg})" if reg_num < 4 else f"tr{reg_num}"
-    else:
-        file_name = 'acc_float.txt' if test_info['is_float'] else 'acc.txt'
-        reg_name = f"acc{test_info['register_num']}"
-        actual_reg = f"acc{test_info['register_num']}"
+    # --- 1. Display Instruction Parameters (Base, Stride) ---
+    base_reg, base_val, stride_reg, stride_val = get_instruction_params(test_info['load_instr'])
+    if base_reg:
+        print(f"  Instruction Parameters:")
+        print(f"    - Base Address ({base_reg}) : 0x{base_val:03X}")
+        print(f"    - Stride       ({stride_reg}) : 0x{stride_val:02X}")
     
-    file_path = iss_dir / file_name
-    print(f"\n[Register: {reg_name}] From {file_name}:")
-    
-    if file_path.exists():
-        with open(file_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-            current_reg = None
-            target_reg = actual_reg + ':'  # e.g., "acc0:" for tr0
-            
-            for line in lines:
-                # Check if this is the target register label
-                if target_reg in line:
-                    current_reg = actual_reg
-                    print(f"  {line.strip()}")  # Print register label
-                # Check if we're starting a different register (stop printing)
-                elif current_reg and any(r in line for r in ['tr0:', 'tr1:', 'tr2:', 'tr3:', 'acc0:', 'acc1:', 'acc2:', 'acc3:']) and target_reg not in line:
-                    current_reg = None
-                # Print content if we're in the target register
-                elif current_reg:
-                        # Also print metadata lines like "(Destination: ...)"
-                        print(f"  {line.strip()}")
-    
-    # Display memory
+    # --- 2. Display Source Memory Data ---
     memory_file = iss_dir / "memory.txt"
-    print(f"\n[Memory] Input/Output comparison:")
+    input_addr = test_info['input_addr']
+    test_name = test_info['name']
     
+    # Determine format helpers
+    if 'e32' in test_name:
+        bytes_per_el, el_per_row, hex_to_val, val_format = (4, 4, hex_to_float32, "{: >10.4f}")
+        hex_to_uint = hex_to_uint32
+    elif 'e16' in test_name:
+        bytes_per_el, el_per_row, hex_to_val, val_format = (2, 4, hex_to_float16, "{: >10.4f}")
+        hex_to_uint = hex_to_uint16
+    elif 'e8' in test_name:
+        bytes_per_el, el_per_row, hex_to_val, val_format = (1, 4, hex_to_int8, "{: >4d}")
+        hex_to_uint = hex_to_uint8
+    else:
+        bytes_per_el, el_per_row, hex_to_val, val_format = (4, 4, hex_to_float32, "{: >10.4f}")
+        hex_to_uint = hex_to_uint32
+
+    print(f"\n  [Memory Source Data] (Address: 0x{input_addr:03X}):")
     if memory_file.exists():
         with open(memory_file, 'r', encoding='utf-8') as f:
             lines = f.readlines()
+        memory_data = {}
+        for line in lines:
+            if ':' in line and not line.startswith('#'):
+                parts = line.split(':', 1)
+                try:
+                    addr = int(parts[0].strip(), 16)
+                    memory_data[addr] = parts[1].strip().split()
+                except:
+                    continue
         
-        # Determine stride based on test name
-        test_name = test_info['name']
-        if 'e32' in test_name:
-            stride = 0x10
-        elif 'e16' in test_name:
-            stride = 0x08
-        elif 'e8' in test_name:
-            stride = 0x04
-        else:
-            stride = 0x10
-        
-        # Collect all 4 rows for input and output
-        input_addr = test_info['input_addr']
-        output_addr = test_info['output_addr']
-        
-        print(f"  {'Row':<4} {'Input Address':<16} {'Output Address':<16}")
-        print(f"  {'-'*4} {'-'*16} {'-'*16}")
-        
-        for row in range(4):
-            in_addr = input_addr + row * stride
-            out_addr = output_addr + row * stride
+        for i in range(4):
+            addr = input_addr + i * stride_val
+            hex_list = memory_data.get(addr, [])
+            vals_str = []
+            int_vals = []
+            for j in range(el_per_row):
+                start, end = j * bytes_per_el, (j + 1) * bytes_per_el
+                chunk = hex_list[start:end]
+                if chunk:
+                    hex_chunk = " ".join(chunk)
+                    vals_str.append(val_format.format(hex_to_val(hex_chunk)))
+                    # Convert to LE Hex string
+                    int_val = hex_to_uint(hex_chunk)
+                    int_vals.append(int_to_hex_le(int_val, bytes_per_el))
             
-            in_hex = f"0x{in_addr:03X}:"
-            out_hex = f"0x{out_addr:03X}:"
-            
-            in_data = ""
-            out_data = ""
-            
-            for line in lines:
-                if in_hex in line:
-                    in_data = line.split(':', 1)[1].strip() if ':' in line else ""
-                if out_hex in line:
-                    out_data = line.split(':', 1)[1].strip() if ':' in line else ""
-            
-            print(f"  Row{row}: Input  {in_hex} {in_data[:47]}")
-            print(f"        Output {out_hex} {out_data[:47]}")
+            display_vals = " ".join(vals_str) if vals_str else "N/A"
+            display_int_vals = "(" + ", ".join(int_vals) + ")" if int_vals else ""
+            print(f"    Row {i}: {display_vals} {display_int_vals}")
+    else:
+        print("    (memory.txt not found)")
+
+    # --- 3. Display Register Content ---
+    iss_dir = SCRIPT_DIR
     
-    # AUTO VERIFICATION
+    # Determine which register and file to check
+    reg_type = test_info['register_type']
+    reg_num = test_info['register_num']
+
+    # Handle alias: tr4-tr7 are actually acc0-acc3 and stored in acc files
+    if reg_type == 'tr' and reg_num >= 4:
+        reg_file_prefix = 'acc'
+        reg_name_prefix = 'acc' # In acc file, they are named acc0, acc1...
+        reg_num = reg_num - 4  # tr4->acc0, tr5->acc1, tr6->acc2, tr7->acc3
+    elif reg_type == 'tr':
+        reg_file_prefix = 'matrix'
+        reg_name_prefix = 'tr'
+    else: # acc (acc0-acc3 directly)
+        reg_file_prefix = 'acc'
+        reg_name_prefix = 'acc'
+
+    is_float = test_info['is_float']
+    file_name = f"{reg_file_prefix}_float.txt" if is_float else f"{reg_file_prefix}.txt"
+    reg_name_to_find = f"{reg_name_prefix}{reg_num}"
+    file_path = iss_dir / file_name
+
+    print(f"\n  [Register Content After LOAD] (Target: {reg_name_to_find}, File: {file_name}):")
+    
+    if not file_path.exists():
+        print("  ✗ FAIL - Register state file not found!")
+        print("-"*80)
+        return False
+
+    with open(file_path, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+        in_reg_block = False
+        found = False
+        for line in lines:
+            if line.strip().startswith(reg_name_to_find + ':'):
+                in_reg_block = True
+                found = True
+                print(f"  {line.strip()}")
+            elif in_reg_block and (line.strip().startswith('Row') or line.strip().startswith('(')):
+                print(f"    {line.strip()}")
+            elif in_reg_block and ':' in line and not line.strip().startswith('('):
+                break
+    
+    if not found:
+        print("  ✗ FAIL - Register block not found in file.")
+        print("-"*80)
+        return False
+        
+    print("\n  ✓ PASS - LOAD instruction executed and register state was saved.")
+    print("    (Visual inspection: Compare [Memory Source Data] with [Register Content])")
+    print("-"*80)
+    return True
+
+def display_and_verify_memory(test_info, success):
+    """Displays the final memory comparison and verifies the store operation."""
     print("\n" + "-"*80)
-    print("[VERIFICATION]")
-    success, message = verify_test(test_info)
+    print("[Verification of STORE Operation]")
     
-    if success:
+    # Print binary instruction
+    print_instruction_binary(test_info['store_instr'])
+
+    if not success:
+        print("  ✗ FAIL - Simulator failed to run for STORE.")
+        print("-"*80)
+        return False
+    
+    iss_dir = SCRIPT_DIR
+
+    # --- Display Instruction Parameters ---
+    base_reg, base_val, stride_reg, stride_val = get_instruction_params(test_info['store_instr'])
+    if base_reg:
+        print(f"  Instruction Parameters:")
+        print(f"    - Base Address ({base_reg}) : 0x{base_val:03X}")
+        print(f"    - Stride       ({stride_reg}) : 0x{stride_val:02X}")
+        
+    # Determine format helpers (Moved up for use in Expected Data display)
+    test_name = test_info['name']
+    if 'e32' in test_name:
+        stride, bytes_per_el, el_per_row, hex_to_val, val_format = (0x10, 4, 4, hex_to_float32, "{: >10.4f}")
+    elif 'e16' in test_name:
+        stride, bytes_per_el, el_per_row, hex_to_val, val_format = (0x08, 2, 4, hex_to_float16, "{: >10.4f}")
+    elif 'e8' in test_name:
+        stride, bytes_per_el, el_per_row, hex_to_val, val_format = (0x04, 1, 4, hex_to_int8, "{: >4d}")
+    else: # Default for column ops
+        stride, bytes_per_el, el_per_row, hex_to_val, val_format = (0x10, 4, 4, hex_to_float32, "{: >10.4f}")
+
+    # --- 1. Display Expected Data from Register ---
+    # Determine which register and file to read
+    reg_type = test_info['register_type']
+    reg_num = test_info['register_num']
+    is_float = test_info['is_float']
+
+    # Handle alias: tr4-tr7 are actually acc0-acc3
+    if reg_type == 'tr' and reg_num >= 4:
+        reg_file_prefix = 'acc'
+        reg_name_prefix = 'acc'
+        reg_num = reg_num - 4  # tr4->acc0, tr5->acc1, etc.
+    elif reg_type == 'tr':
+        reg_file_prefix = 'matrix'
+        reg_name_prefix = 'tr'
+    else:
+        reg_file_prefix = 'acc'
+        reg_name_prefix = 'acc'
+
+    file_name = f"{reg_file_prefix}_float.txt" if is_float else f"{reg_file_prefix}.txt"
+    reg_name_to_find = f"{reg_name_prefix}{reg_num}"
+    file_path = iss_dir / file_name
+    
+    print(f"\n  [Expected Data from Register] (Source: {reg_name_to_find}, File: {file_name}):")
+    if file_path.exists():
+        with open(file_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            in_reg_block = False
+            for line in lines:
+                if line.strip().startswith(reg_name_to_find + ':'):
+                    in_reg_block = True
+                    # Print register header
+                    print(f"    {line.strip()}")
+                elif in_reg_block and line.strip().startswith('('):
+                     # Print type info line
+                     print(f"    {line.strip()}")
+                elif in_reg_block and line.strip().startswith('Row'):
+                    # Parse row data: "Row 0: 1.23 4.56 ... (123, 456, ...)"
+                    try:
+                        parts = line.split('(')
+                        float_part = parts[0].strip() # "Row 0: 1.23 4.56 ..."
+                        int_part = parts[1].strip().rstrip(')') # "123, 456, ..."
+                        
+                        # Process ints to hex
+                        int_strs = int_part.split(',')
+                        hex_strs = []
+                        for s in int_strs:
+                            hex_strs.append(int_to_hex_le(s.strip(), bytes_per_el))
+                        
+                        hex_display = "(" + ", ".join(hex_strs) + ")"
+                        print(f"    {float_part} {hex_display}")
+                    except:
+                        print(f"    {line.strip()}")
+                elif in_reg_block and ':' in line and not line.strip().startswith('('):
+                    break
+    else:
+        print("    (Register file not found)")
+
+    # --- 2. Display Memory Output ---
+    memory_file = iss_dir / "memory.txt"
+    
+    if not memory_file.exists():
+        print("  ✗ FAIL - memory.txt not found!")
+        print("-"*80)
+        return False
+
+    with open(memory_file, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+    
+    memory_data = {}
+    for line in lines:
+        if ':' in line and not line.startswith('#'):
+            parts = line.split(':', 1)
+            try:
+                addr = int(parts[0].strip(), 16)
+                memory_data[addr] = parts[1].strip().split()
+            except:
+                continue
+
+    input_addr_base = test_info['input_addr']
+    output_addr_base = test_info['output_addr']
+
+    # input_lines = [] # Removed Input Data Display
+    output_lines = []
+
+    for i in range(4): # For each row
+        # in_addr = input_addr_base + i * stride # Removed
+        out_addr = output_addr_base + i * stride
+        # in_hex_list = memory_data.get(in_addr, []) # Removed
+        out_hex_list = memory_data.get(out_addr, [])
+        # in_values_str = [] # Removed
+        out_values_str = []
+
+        for j in range(el_per_row):
+            start, end = j * bytes_per_el, (j + 1) * bytes_per_el
+            # chunk_in = in_hex_list[start:end] # Removed
+            # if chunk_in: in_values_str.append(val_format.format(hex_to_val(" ".join(chunk_in)))) # Removed
+            chunk_out = out_hex_list[start:end]
+            if chunk_out: out_values_str.append(val_format.format(hex_to_val(" ".join(chunk_out))))
+
+        # in_display_vals = " ".join(in_values_str) if in_values_str else "N/A" # Removed
+        out_display_vals = " ".join(out_values_str) if out_values_str else "N/A"
+        # in_hex_display = " ".join(in_hex_list) if in_hex_list else "N/A" # Removed
+        out_hex_display = " ".join(out_hex_list) if out_hex_list else "N/A"
+        
+        # input_lines.append(f"  {i:<4} | 0x{in_addr:03X} | {in_display_vals:<38} | {in_hex_display}") # Removed
+        output_lines.append(f"  {i:<4} | 0x{out_addr:03X} | {out_display_vals:<38} | {out_hex_display}")
+
+    header = f"  {'Row':<4} | {'Addr':<6} | {'Values':<38} | {'Hex Data'}"
+    separator = "  " + "-"*5 + "+" + "-"*8 + "+" + "-"*41 + "+" + "-"*len(header)
+
+    # print("\n[Memory] Input Data (from source addresses):") # Removed
+    # print(header); print(separator) # Removed
+    # for line in input_lines: print(line) # Removed
+
+    print("\n[Memory] Output Data (at destination addresses):")
+    print(header); print(separator)
+    for line in output_lines: print(line)
+
+    success_verify, message = verify_test(test_info)
+    print("\n[Final Verification]:")
+    if success_verify:
         print(f"  ✓ PASS - {message}")
     else:
         print(f"  ✗ FAIL - {message}")
     
     print("-"*80)
-    
-    return success
+    return success_verify
 
 
 def run_single_test(test_info, test_num, total_tests):
-    """Run a single test case"""
+    """Run a single test case by splitting LOAD and STORE operations."""
     print("\n" + "="*80)
     print(f"TEST {test_num}/{total_tests}: {test_info['name']}")
     print(f"Description: {test_info['description']}")
     print("="*80)
     
-    # Step 1: Create assembly
-    print("\n[Step 1] Creating assembly.txt with test instructions...")
-    assembly_file = create_assembly_for_test(test_info)
-    print(f"  [OK] Created: {assembly_file}")
-    print(f"       - {test_info['load_instr']}")
-    print(f"       - {test_info['store_instr']}")
+    # --- Part 1: Test LOAD instruction ---
+    print("\n--- Part 1: Testing LOAD instruction ---")
+    print(f"  Instruction: {test_info['load_instr']}")
     
-    # Step 2: Assemble
-    print("\n[Step 2] Assembling...")
+    # Create assembly for LOAD
+    create_assembly_for_test(test_info, instruction_type='load')
+    print("\n[Step 1.1] Assembling LOAD instruction...")
     if not run_assembler():
         print("  [ERROR] Assembly failed!")
         return False
-    print("  [OK] Assembly successful -> machine_code.txt")
+    print("  [OK] Assembly successful.")
+
+    # Run simulator for LOAD
+    print("\n[Step 1.2] Running simulator for LOAD...")
+    sim_success_load = run_simulator()
     
-    # Step 3: Run simulator
-    print("\n[Step 3] Running simulator...")
-    if not run_simulator():
-        print("  [ERROR] Simulation failed!")
+    # Display and verify register state after LOAD
+    load_passed = display_register_state(test_info, sim_success_load)
+    if not load_passed:
+        print("\n[HALT] LOAD part failed. Stopping test.")
         return False
-    print("  [OK] Simulation complete")
+        
+    # Automatically proceed to STORE part
+
+    # --- Part 2: Test STORE instruction ---
+    print("\n--- Part 2: Testing STORE instruction ---")
+    print(f"  Instruction: {test_info['store_instr']}")
+    print("  (Simulator will use the register state saved from the LOAD part)")
+
+    # Create assembly for STORE
+    create_assembly_for_test(test_info, instruction_type='store')
+    print("\n[Step 2.1] Assembling STORE instruction...")
+    if not run_assembler():
+        print("  [ERROR] Assembly failed!")
+        return False
+    print("  [OK] Assembly successful.")
+
+    # Run simulator for STORE
+    print("\n[Step 2.2] Running simulator for STORE...")
+    sim_success_store = run_simulator()
+
+    # Display and verify final memory state after STORE
+    store_passed = display_and_verify_memory(test_info, sim_success_store)
     
-    # Step 4: Display results and verify
-    passed = display_results(test_info)
-    
-    return passed
+    return store_passed
 
 
 def main():
@@ -659,18 +995,10 @@ def main():
             
             if not success:
                 print(f"\n[ERROR] Test {i} failed!")
-                if not auto_mode:
-                    response = input("\nContinue to next test? (y/n): ")
-                    if response.lower() != 'y':
-                        break
-                else:
-                    # In auto mode, stop on first failure
-                    break
             
-            # Ask to continue (except after last test)
-            if i < total_tests and not auto_mode:
-                print("\n" + "="*80)
-                input(f"Press Enter to continue to test {i+1}/{total_tests}...")
+            # Interactive pause between tests (unless in auto mode or last test)
+            if not auto_mode and i < total_tests:
+                input(f"\nPress Enter to continue to test {i+1}/{total_tests}...")
         
         print("\n" + "="*80)
         print("ALL TESTS COMPLETE!")

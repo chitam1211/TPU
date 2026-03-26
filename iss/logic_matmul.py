@@ -32,8 +32,8 @@ class MatmulLogic:
         d_size = instruction[20:22] # bits 11-10
         ms1_idx = int(instruction[14:17], 2)
         ms2_idx = int(instruction[9:12], 2)
-        md_idx = int(instruction[22:25], 2)  # acc0-3 are encoded as 0-3, NOT 4-7!
-        tr_source1_name = f"tr{ms1_idx}"; tr_source2_name = f"tr{ms2_idx}"; acc_dest_name = f"acc{md_idx}"
+        md_idx = int(instruction[22:25], 2)  # acc0-3 are encoded as 4-7 (tr4-tr7 aliases)
+        tr_source1_name = f"tr{ms1_idx}"; tr_source2_name = f"tr{ms2_idx}"; acc_dest_name = f"acc{md_idx - 4}"
         
         # 2. Xác định các thuộc tính & Hàm chuyển đổi (Converters)
         
@@ -213,14 +213,16 @@ class MatmulLogic:
             return
 
         # Đọc mảng đầy đủ từ RAM
+        # md_idx is 4-7 for acc0-acc3, so use md_idx-4 to index into acc arrays
+        acc_idx = md_idx - 4 if md_idx >= 4 else md_idx
         if is_float_op:
             mat_A_full = self.get_matrix_reg_float(ms1_idx)
             mat_B_full = self.get_matrix_reg_float(ms2_idx)
-            mat_C_old = self.acc_float[md_idx]
+            mat_C_old = self.acc_float[acc_idx]
         else:
             mat_A_full = self.get_matrix_reg_int(ms1_idx)
             mat_B_full = self.get_matrix_reg_int(ms2_idx)
-            mat_C_old = self.acc_int[md_idx]
+            mat_C_old = self.acc_int[acc_idx]
         
         # --- FIX for FP8: Load stores INT8 values, need to convert to FP8 float ---
         if instr_name in ["mfmacc.bf16.e5", "mfmacc.bf16.e4"]:
@@ -274,7 +276,7 @@ class MatmulLogic:
                 dot_product = 0.0
                 for k in range(K):
                     a_full_precision = mat_A_full[m][k]  # A[m,k]
-                    b_full_precision = mat_B_full[k][n]  # B[k,n] - FIXED!
+                    b_full_precision = mat_B_full[n][k]  # B[n,k] for A * B.T
 
                     if is_float_op:
                         a_bits = float_to_source_bits(a_full_precision)
@@ -318,9 +320,10 @@ class MatmulLogic:
         print(f"    - Computation complete.")
 
         # 5. Ghi Trạng thái Mới
+        # md_idx is 4-7 for acc0-acc3, so use acc_idx from above
         if is_float_op:
-            self.acc_float[md_idx] = mat_C_new
+            self.acc_float[acc_idx] = mat_C_new
         else:
-            self.acc_int[md_idx] = mat_C_new
+            self.acc_int[acc_idx] = mat_C_new
             
         print(f"    - {acc_dest_name} (in RAM) updated.")
