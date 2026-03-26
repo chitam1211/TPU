@@ -1,156 +1,162 @@
 # TPU Simulator - RISC-V Matrix Extension
 
-## Giới thiệu
-Bộ mô phỏng (Instruction Set Simulator) cho RISC-V Matrix Extension, hỗ trợ các nhóm lệnh:
-- Matrix Multiply-Accumulate (matmul)
-- Load/Store
+## Overview
+This project is an instruction set simulator for the RISC-V Matrix Extension. It supports these instruction groups:
+
+- Matrix multiply-accumulate
+- Load and store
 - Elementwise operations
 - Configuration
 
-## Yêu cầu hệ thống
-- Python 3.8 trở lên
-- numpy (optional, cho test với float16)
+## Requirements
 
-## Cài đặt
+- Python 3.8 or newer
+- numpy is optional and only needed for float16 tests
 
-### 1. Clone repository
+## Setup
+
+### 1. Clone the repository
 ```bash
 git clone <repository-url>
 cd TPU
 ```
 
-### 2. Kiểm tra setup (Recommended - Chạy trên máy mới)
+### 2. Validate the setup (recommended on a new machine)
 ```bash
 python validate_setup.py
 ```
 
-Script này sẽ kiểm tra:
-- Python version (>= 3.8)
+This script checks:
+
+- Python version
 - Project structure
 - Module imports
 - Mixin classes
 - Required attributes
 - UTF-8 encoding support
 
-Nếu tất cả checks PASS → Máy bạn sẵn sàng!
-
-### 2b. Kiểm tra code có khớp với repo không (Optional)
+### 2b. Check whether your code matches the remote repository
 ```bash
 python check_sync.py
 ```
 
-Script này sẽ kiểm tra:
-- Git branch hiện tại
-- So sánh với remote repo
+This script checks:
+
+- Current git branch
+- Remote comparison
 - Uncommitted changes
 - Code differences
 
-### 3. Cài đặt dependencies (optional)
+### 3. Install dependencies (optional)
 ```bash
 pip install -r requirements.txt
 ```
 
-Hoặc chỉ cài numpy nếu cần:
+Or install numpy only if needed:
 ```bash
 pip install numpy
 ```
 
-## Cấu trúc thư mục
+## Project layout
 ```
 TPU/
-├── assembler/          # Bộ dịch assembly
+├── assembler/          # Assembly encoder
 │   ├── assembler.py
-│   ├── assembly.txt    # Input: mã assembly
-│   └── machine_code.txt # Output: mã máy
+│   ├── assembly.txt    # Input assembly
+│   └── machine_code.txt # Output machine code
 │
-├── iss/                # Instruction Set Simulator
+├── iss/                # Instruction set simulator
 │   ├── iss.py          # Main simulator
 │   ├── components.py   # CPU components
-│   ├── definitions.py  # Constants & definitions
-│   ├── converters.py   # Float/int converters
+│   ├── definitions.py  # Constants and definitions
+│   ├── converters.py   # Float and int converters
 │   ├── logic_*.py      # Instruction logic
 │   ├── state_manager.py
 │   ├── run_simulator.py
-│   ├── test_loadstore.py  # Test script
+│   ├── test_loadstore.py
 │   └── *.txt           # State files
 │
 └── requirements.txt
 ```
 
-## Cách sử dụng
+## Usage
 
-### Chạy simulator cơ bản
+### Run the simulator
 ```bash
-# Từ thư mục TPU
 python -m iss.run_simulator
 ```
 
-### Chạy test load/store
+### Run load and store tests
 ```bash
 cd iss
 python test_loadstore.py
 ```
 
-Test script sẽ chạy 5 test cases tuần tự:
-1. mlae32/msae32 - Float32 load/store
-2. mlae16/msae16 - Float16 load/store
-3. mlbe8/msbe8 - Int8 load/store
-4. mlce32/msce32 - Float32 column load/store
-5. mlce8/msce8 - Int8 column load/store
+The test script runs five cases:
 
-### Workflow cơ bản
-1. Viết mã assembly vào `assembler/assembly.txt`
-2. Chạy assembler: `cd assembler && python assembler.py`
-3. Chạy simulator: `cd .. && python -m iss.run_simulator`
-4. Xem kết quả trong các file `.txt` trong thư mục `iss/`
+1. mlae32 and msae32 for float32 load and store
+2. mlae16 and msae16 for float16 load and store
+3. mlbe8 and msbe8 for int8 load and store
+4. mlce32 and msce32 for float32 column load and store
+5. mlce8 and msce8 for int8 column load and store
 
-## Các file state (iss/)
-- `memory.txt` - 1KB RAM (0x000-0x3FF)
-- `gpr.txt` - 32 general purpose registers
-- `matrix.txt` - TR registers (integer)
-- `matrix_float.txt` - TR registers (float)
-- `acc.txt` - Accumulator registers (integer)
-- `acc_float.txt` - Accumulator registers (float)
-- `config.txt` - CSR configuration registers
-- `status.txt` - Status flags
+### Basic workflow
+
+1. Write assembly code to assembler/assembly.txt
+2. Run the assembler: cd assembler and python assembler.py
+3. Run the simulator: cd .. and python -m iss.run_simulator
+4. Inspect state files in iss/
+
+## State files in iss
+
+- memory.txt - RAM contents
+- gpr.txt - 32 general purpose registers
+- matrix.txt - tile registers, integer
+- matrix_float.txt - tile registers, float
+- acc.txt - accumulator registers, integer
+- acc_float.txt - accumulator registers, float
+- config.txt - CSR configuration registers
+- status.txt - status flags
 
 ## Troubleshooting
 
-### Lỗi import module
-Nếu gặp lỗi `ModuleNotFoundError` hoặc `cannot import name`:
-- Đảm bảo chạy từ thư mục gốc `TPU/`
-- Chạy simulator bằng: `python -m iss.run_simulator` (không phải `python iss/run_simulator.py`)
+### Import errors
+If you see ModuleNotFoundError or cannot import name:
 
-### Lỗi với float16
-Nếu test_loadstore.py báo lỗi với float16:
+- Run from the project root directory
+- Use python -m iss.run_simulator instead of python iss/run_simulator.py
+
+### Float16 errors
+If test_loadstore.py fails on float16:
 ```bash
 pip install numpy
 ```
 
-### Lỗi encoding trên Windows
-Nếu gặp lỗi `UnicodeEncodeError`:
-- Đã được fix tự động trong code
-- Hoặc set: `set PYTHONIOENCODING=utf-8`
+### Windows encoding errors
+If you see UnicodeEncodeError:
 
-## Tính năng
+- The code attempts to set UTF-8 automatically
+- You can also set PYTHONIOENCODING to utf-8
+
+## Features
 
 ### Simulator
-- Matrix multiply-accumulate (signed, unsigned, mixed)
-- Float operations (FP16, FP32, BF16)
-- Load/Store (alignment, block, column-wise)
+
+- Matrix multiply-accumulate, signed, unsigned, and mixed
+- Float operations, FP16, FP32, BF16
+- Load and store, alignment, block, and column modes
 - Elementwise operations
 - Configuration via CSR
-- 1KB RAM simulation
-- State persistence to text files
+- RAM simulation and state persistence to text files
 
-### Test Script
+### Test scripts
+
 - Random data generation
-- Sequential testing (one test at a time)
+- Sequential testing
 - Automatic verification
 - Detailed result display
 
-## Đóng góp
-Để report bug hoặc đóng góp, vui lòng tạo issue hoặc pull request.
+## Contributing
+To report bugs or contribute, please open an issue or a pull request.
 
-## License
-[Specify your license here]
+
