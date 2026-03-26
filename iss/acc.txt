@@ -1,25 +1,29 @@
---- Accumulator Registers (acc0-acc3) --- (Integer Only)
+--- Accumulator Registers (acc0-acc3) (Integer Only) ---
 
 acc0:
-  Row 0: 0 0 0 0
-  Row 1: 0 0 0 0
-  Row 2: 0 0 0 0
-  Row 3: 0 0 0 0
+  (Destination: INT32, 32-bit)
+  Row 0: 87 87 87 87 (87, 87, 87, 87)
+  Row 1: 87 87 87 87 (87, 87, 87, 87)
+  Row 2: 87 87 87 87 (87, 87, 87, 87)
+  Row 3: 87 87 87 87 (87, 87, 87, 87)
 
 acc1:
-  Row 0: 0 0 0 0
-  Row 1: 0 0 0 0
-  Row 2: 0 0 0 0
-  Row 3: 0 0 0 0
+  (Destination: INT32, 32-bit)
+  Row 0: 0 0 0 0 (0, 0, 0, 0)
+  Row 1: 0 0 0 0 (0, 0, 0, 0)
+  Row 2: 0 0 0 0 (0, 0, 0, 0)
+  Row 3: 0 0 0 0 (0, 0, 0, 0)
 
 acc2:
-  Row 0: 0 0 0 0
-  Row 1: 0 0 0 0
-  Row 2: 0 0 0 0
-  Row 3: 0 0 0 0
+  (Destination: INT32, 32-bit)
+  Row 0: 21 21 21 21 (21, 21, 21, 21)
+  Row 1: 21 21 21 21 (21, 21, 21, 21)
+  Row 2: 21 21 21 21 (21, 21, 21, 21)
+  Row 3: 21 21 21 21 (21, 21, 21, 21)
 
 acc3:
-  Row 0: 0 0 0 0
-  Row 1: 0 0 0 0
-  Row 2: 0 0 0 0
-  Row 3: 0 0 0 0
+  (Destination: INT32, 32-bit)
+  Row 0: 0 0 0 0 (0, 0, 0, 0)
+  Row 1: 0 0 0 0 (0, 0, 0, 0)
+  Row 2: 0 0 0 0 (0, 0, 0, 0)
+  Row 3: 0 0 0 0 (0, 0, 0, 0)
