@@ -13,49 +13,139 @@ This project is an instruction set simulator for the RISC-V Matrix Extension. It
 - Python 3.8 or newer
 - numpy is optional and only needed for float16 tests
 
+Dependencies listed in requirements.txt:
+
+- numpy>=1.20.0
+- streamlit>=1.28.0
+- pandas>=1.5.0
+
+Standard library modules used include struct, random, subprocess, pathlib, os, sys, re, math.
+
 ## Setup
 
-### 1. Clone the repository
+### Quick start
 ```bash
 git clone <repository-url>
 cd TPU
+python validate_setup.py
 ```
 
-### 2. Validate the setup (recommended on a new machine)
+Optional checks:
+```bash
+python check_sync.py
+pip install -r requirements.txt
+```
+
+## Setup checklist
+
+Follow these steps on a new machine.
+
+### Step 1. Clone the repository
+```bash
+git clone https://github.com/chitam1211/TPU.git
+cd TPU
+git checkout oop_ver
+```
+
+### Step 2. Check the Python version
+```bash
+python --version
+```
+
+Required: Python 3.8 or newer.
+
+### Step 3. Run the validation script
 ```bash
 python validate_setup.py
 ```
 
-This script checks:
+If all checks pass, skip Step 4 and go to Step 5.
 
-- Python version
-- Project structure
-- Module imports
-- Mixin classes
-- Required attributes
-- UTF-8 encoding support
+### Step 4. Fix common issues
 
-### 2b. Check whether your code matches the remote repository
+Error: Cannot import iss
 ```bash
-python check_sync.py
+pwd
 ```
 
-This script checks:
+You should be in the project root directory, not inside iss.
 
-- Current git branch
-- Remote comparison
-- Uncommitted changes
-- Code differences
-
-### 3. Install dependencies (optional)
+Error: Python version too old
 ```bash
-pip install -r requirements.txt
+python3.10 --version
 ```
 
-Or install numpy only if needed:
+Error: Missing files
+```bash
+git pull origin oop_ver
+git status
+```
+
+Warning: numpy not installed
 ```bash
 pip install numpy
 ```
+
+### Step 5. Run a quick simulator test
+```bash
+python -m iss.run_simulator
+```
+
+Optional test script:
+```bash
+cd iss
+python test_loadstore.py
+```
+
+### Step 6. VS Code setup
+
+1. Open the TPU folder in VS Code
+2. Install the Python extension (ms-python.python)
+3. Install the Pylance extension (ms-python.vscode-pylance)
+4. Reload the window
+5. Check the Problems panel for errors
+
+### Step 7. Final validation
+```bash
+python validate_setup.py
+```
+
+Expected result:
+```
+Passed: 8/8
+ALL CHECKS PASSED
+```
+
+## Advanced troubleshooting
+
+Windows encoding errors:
+```powershell
+$env:PYTHONIOENCODING="utf-8"
+python -m iss.run_simulator
+```
+
+Pylance attribute not found:
+
+This is addressed in .vscode/settings.json. Reload the VS Code window if it persists.
+
+Import errors with __init__.py present:
+```bash
+rm -rf iss/__pycache__
+rm -rf assembler/__pycache__
+```
+
+On Windows:
+```powershell
+rmdir /s iss\__pycache__
+rmdir /s assembler\__pycache__
+```
+
+After all checks pass, you can:
+
+- Run the simulator: python -m iss.run_simulator
+- Run the assembler: cd assembler and python assembler.py
+- Run tests: cd iss and python test_loadstore.py
+- Commit changes: git add . and git commit -m "message" and git push
 
 ## Project layout
 ```
