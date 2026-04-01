@@ -13,11 +13,10 @@ This project is an instruction set simulator for the RISC-V Matrix Extension. It
 - Python 3.8 or newer
 - numpy is optional and only needed for float16 tests
 
-Dependencies listed in requirements.txt:
+Optional Python packages:
 
-- numpy>=1.20.0
-- streamlit>=1.28.0
-- pandas>=1.5.0
+- numpy for float16 tests
+- streamlit and pandas for the web app
 
 Standard library modules used include struct, random, subprocess, pathlib, os, sys, re, math.
 
@@ -30,10 +29,10 @@ cd TPU
 python validate_setup.py
 ```
 
-Optional checks:
+Optional installs:
 ```bash
-python check_sync.py
-pip install -r requirements.txt
+pip install numpy
+pip install streamlit pandas
 ```
 
 ## Setup checklist
@@ -112,7 +111,7 @@ python validate_setup.py
 
 Expected result:
 ```
-Passed: 8/8
+Passed: 9/9
 ALL CHECKS PASSED
 ```
 
@@ -166,7 +165,7 @@ TPU/
 │   ├── test_loadstore.py
 │   └── *.txt           # State files
 │
-└── requirements.txt
+└── README.md
 ```
 
 ## Usage
