@@ -246,6 +246,41 @@ If you see UnicodeEncodeError:
 - Automatic verification
 - Detailed result display
 
+## Binary printing
+
+The test scripts can print binary instruction encodings and register values.
+
+What it shows:
+
+- 32 bit instruction encoding
+- 512 bit register dumps split into four 128 bit chunks, little endian
+
+Key module:
+
+- iss/binary_print_utils.py provides instruction and register formatting helpers
+
+Tests that use it:
+
+- iss/test_elementwise.py
+- iss/test_matmul.py
+- iss/test_loadstore.py
+- iss/test_misc.py
+
+Example commands:
+
+```bash
+cd iss
+python test_elementwise.py --auto
+python test_matmul.py --auto
+python test_loadstore.py --auto
+python test_misc.py --auto
+```
+
+Data type notes:
+
+- float32 and int32 produce full 512 bit output
+- float16 and int8 are padded to 512 bits
+
 ## Contributing
 To report bugs or contribute, please open an issue or a pull request.
 

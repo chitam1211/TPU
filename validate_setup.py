@@ -11,10 +11,11 @@ import sys
 import os
 from pathlib import Path
 import importlib.util
+import subprocess
 
 def check_python_version():
     """Check Python version >= 3.8"""
-    print("\n[1/8] Checking Python version...")
+    print("\n[1/9] Checking Python version...")
     version = sys.version_info
     if version.major < 3 or (version.major == 3 and version.minor < 8):
         print(f"    [FAIL] Python {version.major}.{version.minor} detected")
@@ -25,7 +26,7 @@ def check_python_version():
 
 def check_project_structure():
     """Check required directories and files exist"""
-    print("\n[2/8] Checking project structure...")
+    print("\n[2/9] Checking project structure...")
     required_items = [
         ('iss/', True),
         ('iss/__init__.py', False),
@@ -35,7 +36,6 @@ def check_project_structure():
         ('assembler/', True),
         ('assembler/__init__.py', False),
         ('assembler/assembler.py', False),
-        ('requirements.txt', False),
         ('README.md', False),
         ('.vscode/settings.json', False),
     ]
@@ -60,7 +60,7 @@ def check_project_structure():
 
 def check_imports():
     """Check if main modules can be imported"""
-    print("\n[3/8] Checking module imports...")
+    print("\n[3/9] Checking module imports...")
     modules_to_check = [
         ('iss', 'iss package'),
         ('iss.iss', 'iss.Simulator'),
@@ -82,7 +82,7 @@ def check_imports():
 
 def check_mixin_classes():
     """Check if all mixin classes are present"""
-    print("\n[4/8] Checking mixin classes...")
+    print("\n[4/9] Checking mixin classes...")
     try:
         from iss.components import MatrixAccelerator
         
@@ -111,7 +111,7 @@ def check_mixin_classes():
 
 def check_required_attributes():
     """Check if MatrixAccelerator has required attributes"""
-    print("\n[5/8] Checking MatrixAccelerator attributes...")
+    print("\n[5/9] Checking MatrixAccelerator attributes...")
     try:
         from iss.components import MatrixAccelerator, RegisterFile, CSRFile, MainMemory
         
@@ -143,7 +143,7 @@ def check_required_attributes():
 
 def check_optional_dependencies():
     """Check optional dependencies"""
-    print("\n[6/8] Checking optional dependencies...")
+    print("\n[6/9] Checking optional dependencies...")
     try:
         import numpy
         print(f"    [OK] numpy {numpy.__version__} (for float16 support)")
@@ -156,7 +156,7 @@ def check_optional_dependencies():
 
 def check_encoding_support():
     """Check if UTF-8 encoding is supported"""
-    print("\n[7/8] Checking UTF-8 encoding support...")
+    print("\n[7/9] Checking UTF-8 encoding support...")
     try:
         # Test UTF-8 encoding
         test_str = "Test UTF-8: ✓ ✗ → ← ↑ ↓"
@@ -174,7 +174,7 @@ def check_encoding_support():
 
 def check_simulator_run():
     """Test if simulator can be instantiated"""
-    print("\n[8/8] Testing simulator instantiation...")
+    print("\n[8/9] Testing simulator instantiation...")
     try:
         from iss.iss import Simulator
         sim = Simulator()
@@ -184,6 +184,69 @@ def check_simulator_run():
         print(f"    [FAIL] Cannot create Simulator")
         print(f"       Error: {e}")
         return False
+
+def run_command(cmd):
+    """Run a shell command and return output."""
+    try:
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace'
+        )
+        return result.returncode, result.stdout, result.stderr
+    except Exception as e:
+        return 1, "", str(e)
+
+def check_git_sync():
+    """Check whether the working tree is in sync with the remote branch."""
+    print("\n[9/9] Checking git sync status...")
+
+    code, _, _ = run_command("git rev-parse --git-dir")
+    if code != 0:
+        print("    [WARNING] Not a git repository")
+        return True
+
+    code, branch, _ = run_command("git branch --show-current")
+    if code != 0:
+        print("    [WARNING] Cannot determine current branch")
+        return True
+
+    branch = branch.strip()
+    print(f"    Branch: {branch}")
+
+    code, _, _ = run_command("git fetch origin")
+    if code != 0:
+        print("    [WARNING] Cannot fetch from remote")
+
+    code, output, _ = run_command(f"git rev-list --left-right --count origin/{branch}...HEAD")
+    if code == 0 and output:
+        behind, ahead = output.strip().split()
+        behind = int(behind)
+        ahead = int(ahead)
+        if behind == 0 and ahead == 0:
+            print("    [OK] Up to date with remote")
+        elif behind > 0 and ahead == 0:
+            print(f"    [WARNING] Behind remote by {behind} commit(s)")
+        elif behind == 0 and ahead > 0:
+            print(f"    [WARNING] Ahead of remote by {ahead} commit(s)")
+        else:
+            print(f"    [WARNING] Diverged from remote (behind {behind}, ahead {ahead})")
+    else:
+        print("    [WARNING] Cannot compare with remote")
+
+    code, output, _ = run_command("git status --porcelain")
+    if code == 0 and not output.strip():
+        print("    [OK] Working tree clean")
+        return True
+
+    if code == 0 and output.strip():
+        print("    [WARNING] Uncommitted changes present")
+        return False
+
+    return True
 
 def main():
     """Run all validation checks"""
@@ -204,6 +267,7 @@ def main():
         check_optional_dependencies,
         check_encoding_support,
         check_simulator_run,
+        check_git_sync,
     ]
     
     results = []
@@ -230,14 +294,14 @@ def main():
         print("\nYou can now run:")
         print("  python -m iss.run_simulator")
         return 0
-    else:
-        print("\n[FAIL] SOME CHECKS FAILED! Please fix the issues above.")
-        print("\nCommon fixes:")
-        print("  1. Make sure you're in the TPU/ root directory")
-        print("  2. Run: git pull origin oop_ver")
-        print("  3. Check Python version: python --version")
-        print("  4. Install numpy (optional): pip install numpy")
-        return 1
+
+    print("\n[FAIL] SOME CHECKS FAILED! Please fix the issues above.")
+    print("\nCommon fixes:")
+    print("  1. Make sure you're in the TPU/ root directory")
+    print("  2. Run: git pull origin <branch>")
+    print("  3. Check Python version: python --version")
+    print("  4. Install numpy (optional): pip install numpy")
+    return 1
 
 if __name__ == '__main__':
     sys.exit(main())
