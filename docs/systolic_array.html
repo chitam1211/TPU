@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>4x4 Systolic Array</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --ink: #172033;
+      --muted: #5d697c;
+      --line: #9fb0c8;
+      --a: #dcecff;
+      --b: #e3f7df;
+      --c: #f1e4ff;
+      --pe: #fff1bf;
+      --ram: #eef2f7;
+      --accent: #245fd1;
+      --ok: #227a52;
+    }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.5;
+    }
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 28px;
+    }
+    h2 {
+      margin: 0 0 12px;
+      font-size: 20px;
+    }
+    p {
+      margin: 8px 0;
+      color: var(--muted);
+    }
+    code {
+      background: #eef2f7;
+      padding: 2px 5px;
+      border-radius: 4px;
+    }
+    .panel {
+      margin: 18px 0;
+      padding: 18px;
+      background: #fff;
+      border: 1px solid #dde5f0;
+      border-radius: 8px;
+    }
+    .formula {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-left: 4px solid var(--accent);
+      background: #eef4ff;
+      border-radius: 6px;
+      color: var(--ink);
+    }
+    .flow {
+      display: grid;
+      grid-template-columns: 1fr 42px 1fr 42px 1fr;
+      gap: 10px;
+      align-items: stretch;
+      margin-top: 16px;
+    }
+    .box {
+      min-height: 96px;
+      border: 2px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      box-sizing: border-box;
+      background: #fff;
+    }
+    .box strong {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--ink);
+    }
+    .a-box { background: var(--a); }
+    .b-box { background: var(--b); }
+    .c-box { background: var(--c); }
+    .ram-box { background: var(--ram); }
+    .arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      font-size: 26px;
+      font-weight: 700;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 14px;
+    }
+    .memory-map {
+      display: grid;
+      grid-template-columns: 120px repeat(4, 1fr);
+      gap: 8px;
+      align-items: stretch;
+    }
+    .tile {
+      min-height: 54px;
+      border: 1px solid #bfd0e5;
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+      box-sizing: border-box;
+      text-align: center;
+    }
+    .tile.head {
+      background: #edf3fb;
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .tile.row {
+      background: var(--a);
+      font-weight: 700;
+    }
+    .tile.acc {
+      background: var(--c);
+    }
+    .array {
+      display: grid;
+      grid-template-columns: 120px repeat(4, 1fr);
+      gap: 8px;
+      margin-top: 14px;
+      align-items: stretch;
+    }
+    .cell {
+      min-height: 78px;
+      border: 2px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      box-sizing: border-box;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 4px;
+      background: #fff;
+    }
+    .cell.small {
+      min-height: 52px;
+      font-weight: 700;
+    }
+    .cell.a-in {
+      background: var(--a);
+      font-weight: 700;
+    }
+    .cell.b-in {
+      background: var(--b);
+      font-weight: 700;
+    }
+    .cell.pe {
+      background: var(--pe);
+    }
+    .cell.pe strong {
+      color: var(--ink);
+    }
+    .cell.pe span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .step {
+      border: 1px solid #dde5f0;
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+    }
+    .step strong {
+      color: var(--accent);
+      display: block;
+      margin-bottom: 6px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      margin-top: 12px;
+    }
+    th, td {
+      border: 1px solid #dde5f0;
+      padding: 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #edf3fb;
+    }
+    .note {
+      color: var(--ok);
+      font-weight: 700;
+    }
+    @media (max-width: 860px) {
+      .flow, .layout, .steps, .array, .memory-map {
+        grid-template-columns: 1fr;
+      }
+      .arrow {
+        transform: rotate(90deg);
+      }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Systolic array 4x4 trong Matrix MAC</h1>
+  <p>
+    Mục tiêu của khối <code>matrix_mac</code> là chạy phép nhân số nguyên packed-lite:
+    <code>A[4x16] int8</code> nhân <code>B[16x4] int8</code>, cộng dồn ra
+    <code>C[4x4] int32</code>.
+  </p>
+
+  <section class="panel">
+    <h2>1. Bài toán mà MAC đang giải</h2>
+    <div class="flow">
+      <div class="box a-box">
+        <strong>A trong tr0</strong>
+        <code>4 x 16 int8</code>
+        <p>4 hàng. Mỗi hàng có 16 phần tử INT8.</p>
+      </div>
+      <div class="arrow">x</div>
+      <div class="box b-box">
+        <strong>B trong tr1</strong>
+        <code>16 x 4 int8</code>
+        <p>Được lưu dạng chuyển vị để đọc theo cột dễ hơn.</p>
+      </div>
+      <div class="arrow">=</div>
+      <div class="box c-box">
+        <strong>C trong acc0</strong>
+        <code>4 x 4 int32</code>
+        <p>Mỗi phần tử C là tổng tích lũy 32-bit.</p>
+      </div>
+    </div>
+    <div class="formula">
+      <code>C[i][j] = sum(A[i][k] * B[k][j])</code>, với <code>k = 0..K-1</code>.
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>2. Packed-lite nằm trong regfile như thế nào?</h2>
+    <p>
+      Mỗi slot vật lý trong regfile là một word 32-bit. Với INT8, một word chứa 4 phần tử.
+      Vì vậy một hàng của <code>tr</code> có 4 beat, tức 16 phần tử INT8.
+    </p>
+    <div class="layout">
+      <div>
+        <h2>A: tr0 giữ 4 hàng của A</h2>
+        <div class="memory-map">
+          <div class="tile head">row</div>
+          <div class="tile head">beat0</div>
+          <div class="tile head">beat1</div>
+          <div class="tile head">beat2</div>
+          <div class="tile head">beat3</div>
+
+          <div class="tile row">A row 0</div>
+          <div class="tile">A[0][0..3]</div>
+          <div class="tile">A[0][4..7]</div>
+          <div class="tile">A[0][8..11]</div>
+          <div class="tile">A[0][12..15]</div>
+
+          <div class="tile row">A row 1</div>
+          <div class="tile">A[1][0..3]</div>
+          <div class="tile">A[1][4..7]</div>
+          <div class="tile">A[1][8..11]</div>
+          <div class="tile">A[1][12..15]</div>
+
+          <div class="tile row">A row 2</div>
+          <div class="tile">A[2][0..3]</div>
+          <div class="tile">A[2][4..7]</div>
+          <div class="tile">A[2][8..11]</div>
+          <div class="tile">A[2][12..15]</div>
+
+          <div class="tile row">A row 3</div>
+          <div class="tile">A[3][0..3]</div>
+          <div class="tile">A[3][4..7]</div>
+          <div class="tile">A[3][8..11]</div>
+          <div class="tile">A[3][12..15]</div>
+        </div>
+      </div>
+      <div>
+        <h2>C: acc0 giữ kết quả 4x4</h2>
+        <div class="memory-map">
+          <div class="tile head">row</div>
+          <div class="tile head">beat0</div>
+          <div class="tile head">beat1</div>
+          <div class="tile head">beat2</div>
+          <div class="tile head">beat3</div>
+
+          <div class="tile row">C row 0</div>
+          <div class="tile acc">C[0][0]</div>
+          <div class="tile acc">C[0][1]</div>
+          <div class="tile acc">C[0][2]</div>
+          <div class="tile acc">C[0][3]</div>
+
+          <div class="tile row">C row 1</div>
+          <div class="tile acc">C[1][0]</div>
+          <div class="tile acc">C[1][1]</div>
+          <div class="tile acc">C[1][2]</div>
+          <div class="tile acc">C[1][3]</div>
+
+          <div class="tile row">C row 2</div>
+          <div class="tile acc">C[2][0]</div>
+          <div class="tile acc">C[2][1]</div>
+          <div class="tile acc">C[2][2]</div>
+          <div class="tile acc">C[2][3]</div>
+
+          <div class="tile row">C row 3</div>
+          <div class="tile acc">C[3][0]</div>
+          <div class="tile acc">C[3][1]</div>
+          <div class="tile acc">C[3][2]</div>
+          <div class="tile acc">C[3][3]</div>
+        </div>
+      </div>
+    </div>
+    <p>
+      <span class="note">Điểm cần nhớ:</span> <code>tr</code> và <code>acc</code> có cùng số slot vật lý
+      trong prototype, nhưng <code>tr</code> đóng gói nhiều INT8 trong một word, còn
+      <code>acc</code> dùng một word cho một kết quả INT32.
+    </p>
+  </section>
+
+  <section class="panel">
+    <h2>3. Sơ đồ systolic array 4x4</h2>
+    <p>
+      A đi từ trái sang phải. B đi từ trên xuống dưới. Mỗi PE tính một phần tử
+      của C và giữ tổng tích lũy riêng.
+    </p>
+    <div class="array">
+      <div class="cell small"></div>
+      <div class="cell b-in">B[:,0]<br>đi xuống</div>
+      <div class="cell b-in">B[:,1]<br>đi xuống</div>
+      <div class="cell b-in">B[:,2]<br>đi xuống</div>
+      <div class="cell b-in">B[:,3]<br>đi xuống</div>
+
+      <div class="cell a-in">A[0,:]<br>đi sang phải</div>
+      <div class="cell pe"><strong>PE00</strong><span>acc = C[0][0]</span></div>
+      <div class="cell pe"><strong>PE01</strong><span>acc = C[0][1]</span></div>
+      <div class="cell pe"><strong>PE02</strong><span>acc = C[0][2]</span></div>
+      <div class="cell pe"><strong>PE03</strong><span>acc = C[0][3]</span></div>
+
+      <div class="cell a-in">A[1,:]<br>đi sang phải</div>
+      <div class="cell pe"><strong>PE10</strong><span>acc = C[1][0]</span></div>
+      <div class="cell pe"><strong>PE11</strong><span>acc = C[1][1]</span></div>
+      <div class="cell pe"><strong>PE12</strong><span>acc = C[1][2]</span></div>
+      <div class="cell pe"><strong>PE13</strong><span>acc = C[1][3]</span></div>
+
+      <div class="cell a-in">A[2,:]<br>đi sang phải</div>
+      <div class="cell pe"><strong>PE20</strong><span>acc = C[2][0]</span></div>
+      <div class="cell pe"><strong>PE21</strong><span>acc = C[2][1]</span></div>
+      <div class="cell pe"><strong>PE22</strong><span>acc = C[2][2]</span></div>
+      <div class="cell pe"><strong>PE23</strong><span>acc = C[2][3]</span></div>
+
+      <div class="cell a-in">A[3,:]<br>đi sang phải</div>
+      <div class="cell pe"><strong>PE30</strong><span>acc = C[3][0]</span></div>
+      <div class="cell pe"><strong>PE31</strong><span>acc = C[3][1]</span></div>
+      <div class="cell pe"><strong>PE32</strong><span>acc = C[3][2]</span></div>
+      <div class="cell pe"><strong>PE33</strong><span>acc = C[3][3]</span></div>
+    </div>
+    <div class="formula">
+      Trong mỗi PE: <code>pe_acc[row][col] = pe_acc[row][col] + A_value * B_value</code>.
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>4. Một chu kỳ compute làm gì?</h2>
+    <div class="steps">
+      <div class="step">
+        <strong>1. Chọn byte theo k</strong>
+        MAC lấy đúng byte INT8 trong word 32-bit của A và B.
+      </div>
+      <div class="step">
+        <strong>2. Mở rộng lên 32-bit</strong>
+        INT8 được sign-extend hoặc zero-extend tùy loại lệnh.
+      </div>
+      <div class="step">
+        <strong>3. Đưa vào biên array</strong>
+        A đi vào cạnh trái, B đi vào cạnh trên, kèm valid bit.
+      </div>
+      <div class="step">
+        <strong>4. PE cộng dồn</strong>
+        PE hợp lệ thực hiện nhân và cộng vào accumulator nội bộ.
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>5. FSM của MAC</h2>
+    <p>
+      Đây là state điều khiển, không phải toàn bộ đều là pipeline stage chính.
+      Nếu giải thích nhanh trong phỏng vấn, có thể gộp thành:
+      <code>chuẩn bị</code>, <code>feed/compute</code>, <code>writeback</code>.
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th>State</th>
+          <th>Vai trò</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>ST_IDLE</code></td>
+          <td>Chờ lệnh <code>start_matmul</code>, chốt loại lệnh và kích thước tile.</td>
+        </tr>
+        <tr>
+          <td><code>ST_INIT_C</code></td>
+          <td>Đọc C ban đầu từ accumulator register vào <code>pe_acc</code>.</td>
+        </tr>
+        <tr>
+          <td><code>ST_FEED</code></td>
+          <td>Chốt dữ liệu A/B ở biên array để cắt đường timing dài.</td>
+        </tr>
+        <tr>
+          <td><code>ST_COMPUTE</code></td>
+          <td>Dịch dữ liệu qua các PE và thực hiện cộng dồn.</td>
+        </tr>
+        <tr>
+          <td><code>ST_WRITE</code></td>
+          <td>Ghi 16 kết quả INT32 từ <code>pe_acc</code> về <code>acc</code>.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>6. Vì sao số chu kỳ compute lớn hơn K?</h2>
+    <p>
+      Systolic array không làm mọi PE nhận dữ liệu cùng lúc. PE ở góc trên-trái nhận dữ liệu sớm,
+      còn PE ở góc dưới-phải nhận dữ liệu muộn vì A phải đi qua nhiều cột và B phải đi qua nhiều hàng.
+    </p>
+    <div class="formula">
+      <code>last_compute_cycle = K + M + N - 3</code>
+    </div>
+    <p>
+      Với test hiện tại: <code>M=4</code>, <code>N=4</code>, <code>K=16</code>,
+      nên cần khoảng <code>16 + 4 + 4 - 3 = 21</code> mốc cuối, tức khoảng 22 bước compute nếu đếm từ 0.
+    </p>
+  </section>
+</main>
+</body>
+</html>

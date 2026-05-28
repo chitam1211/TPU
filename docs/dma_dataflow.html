@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Matrix DMA Data Flow</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fb;
+      --ink: #162033;
+      --muted: #5d697c;
+      --line: #9fb0c8;
+      --cpu: #dcecff;
+      --ram: #e5f7df;
+      --dma: #fff0c7;
+      --reg: #f1e4ff;
+      --accent: #2d6cdf;
+    }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.5;
+    }
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+    h1, h2 {
+      margin: 0 0 12px;
+    }
+    h1 {
+      font-size: 28px;
+    }
+    h2 {
+      margin-top: 28px;
+      font-size: 20px;
+    }
+    p {
+      margin: 8px 0;
+      color: var(--muted);
+    }
+    code {
+      background: #eef2f7;
+      padding: 2px 5px;
+      border-radius: 4px;
+    }
+    .diagram {
+      margin: 22px 0;
+      padding: 20px;
+      background: #ffffff;
+      border: 1px solid #dde5f0;
+      border-radius: 8px;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 80px 1.1fr 80px 1fr;
+      gap: 12px;
+      align-items: center;
+      margin: 14px 0;
+    }
+    .box {
+      min-height: 72px;
+      border: 2px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #fff;
+      box-sizing: border-box;
+    }
+    .cpu { background: var(--cpu); }
+    .ram { background: var(--ram); }
+    .dma { background: var(--dma); }
+    .reg { background: var(--reg); }
+    .title {
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .arrow {
+      text-align: center;
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 20px;
+    }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .step {
+      background: #fff;
+      border: 1px solid #dde5f0;
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .step strong {
+      display: block;
+      color: var(--accent);
+      margin-bottom: 6px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      background: #fff;
+    }
+    th, td {
+      border: 1px solid #dde5f0;
+      padding: 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #edf3fb;
+    }
+    @media (max-width: 760px) {
+      .row, .steps {
+        grid-template-columns: 1fr;
+      }
+      .arrow {
+        transform: rotate(90deg);
+      }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Luồng dữ liệu của Matrix DMA</h1>
+  <p>
+    DMA là khối di chuyển dữ liệu giữa shared RAM và matrix regfile. DMA không tính toán;
+    nó chỉ thực hiện load/store theo lệnh matrix load-store do <code>matrix_pcpi</code> decode.
+  </p>
+
+  <section class="diagram">
+    <h2>Tổng quan kết nối</h2>
+    <div class="row">
+      <div class="box cpu">
+        <div class="title">PicoRV32 CPU</div>
+        <p>Fetch chương trình, phát lệnh matrix qua PCPI.</p>
+      </div>
+      <div class="arrow">PCPI</div>
+      <div class="box dma">
+        <div class="title">Matrix Core + DMA</div>
+        <p>Nhận start_mld/start_mst, tạo giao dịch đọc/ghi RAM theo burst.</p>
+      </div>
+      <div class="arrow">AXI4-Full subset</div>
+      <div class="box ram">
+        <div class="title">Shared RAM</div>
+        <p>Chứa chương trình, input matrix A/B, output C.</p>
+      </div>
+    </div>
+    <div class="row">
+      <div class="box cpu">
+        <div class="title">CPU native port</div>
+        <p>CPU đọc instruction và data qua port riêng.</p>
+      </div>
+      <div class="arrow"></div>
+      <div class="box dma">
+        <div class="title">DMA Engine</div>
+        <p>Điều khiển địa chỉ, beat, row, strobe.</p>
+      </div>
+      <div class="arrow">reg port</div>
+      <div class="box reg">
+        <div class="title">Matrix Regfile</div>
+        <p>Lưu <code>tr0..tr3</code> và <code>acc0..acc3</code>.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Luồng load: RAM -> Regfile</h2>
+    <div class="steps">
+      <div class="step">
+        <strong>1. PCPI decode</strong>
+        Lệnh như <code>mlae8</code> tạo pulse <code>start_mld</code>.
+      </div>
+      <div class="step">
+        <strong>2. DMA read address</strong>
+        DMA phát <code>AR</code> tới shared RAM theo base address và row stride.
+      </div>
+      <div class="step">
+        <strong>3. RAM read data</strong>
+        RAM trả từng beat 32-bit qua channel <code>R</code>.
+      </div>
+      <div class="step">
+        <strong>4. Regfile write</strong>
+        DMA ghi <code>reg_id,row,beat,wdata</code> vào matrix regfile.
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Luồng store: Regfile -> RAM</h2>
+    <div class="steps">
+      <div class="step">
+        <strong>1. PCPI decode</strong>
+        Lệnh như <code>msce32</code> tạo pulse <code>start_mst</code>.
+      </div>
+      <div class="step">
+        <strong>2. DMA write address</strong>
+        DMA phát <code>AW</code> cho từng row cần store.
+      </div>
+      <div class="step">
+        <strong>3. DMA write data</strong>
+        DMA đọc regfile và phát <code>W data</code>, <code>W strobe</code>.
+      </div>
+      <div class="step">
+        <strong>4. Write response</strong>
+        RAM trả <code>B response</code>, DMA chuyển row hoặc báo done.
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Các state chính của DMA</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>State</th>
+          <th>Vai trò</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>ST_IDLE</code></td>
+          <td>Chờ lệnh load/store mới.</td>
+        </tr>
+        <tr>
+          <td><code>ST_CALC_ROW</code></td>
+          <td>Tính địa chỉ row hiện tại và số beat cần truyền.</td>
+        </tr>
+        <tr>
+          <td><code>ST_AR_REQ</code></td>
+          <td>Phát địa chỉ đọc RAM cho load.</td>
+        </tr>
+        <tr>
+          <td><code>ST_R_BURST</code></td>
+          <td>Nhận dữ liệu RAM và ghi vào regfile.</td>
+        </tr>
+        <tr>
+          <td><code>ST_AW_REQ</code></td>
+          <td>Phát địa chỉ ghi RAM cho store.</td>
+        </tr>
+        <tr>
+          <td><code>ST_W_BURST</code></td>
+          <td>Gửi dữ liệu từ regfile ra RAM.</td>
+        </tr>
+        <tr>
+          <td><code>ST_B_WAIT</code></td>
+          <td>Chờ write response từ RAM.</td>
+        </tr>
+        <tr>
+          <td><code>ST_NEXT_ROW</code></td>
+          <td>Chuyển sang row kế tiếp hoặc kết thúc DMA.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>

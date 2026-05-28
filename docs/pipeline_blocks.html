@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pipeline Trong Matrix Coprocessor</title>
+  <style>
+    :root {
+      --bg: #f7f8fb;
+      --ink: #172033;
+      --muted: #606c7f;
+      --line: #dbe3ef;
+      --stage: #eaf2ff;
+      --stage2: #e9f8ed;
+      --stage3: #fff2c9;
+      --accent: #245fd1;
+    }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Arial, Helvetica, sans-serif;
+      line-height: 1.5;
+    }
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+    h1 {
+      margin: 0 0 12px;
+      font-size: 28px;
+    }
+    h2 {
+      margin: 28px 0 12px;
+      font-size: 20px;
+    }
+    p {
+      color: var(--muted);
+      margin: 8px 0;
+    }
+    code {
+      background: #eef2f7;
+      padding: 2px 5px;
+      border-radius: 4px;
+    }
+    .block {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+      margin: 18px 0;
+    }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 10px;
+      align-items: stretch;
+      margin-top: 14px;
+    }
+    .stage {
+      min-height: 86px;
+      border: 1px solid #b9c7db;
+      border-radius: 8px;
+      padding: 12px;
+      background: var(--stage);
+      box-sizing: border-box;
+    }
+    .stage:nth-child(2) { background: var(--stage2); }
+    .stage:nth-child(3) { background: var(--stage3); }
+    .stage strong {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--accent);
+    }
+    .note {
+      margin-top: 14px;
+      padding: 14px;
+      border-left: 4px solid var(--accent);
+      background: #eef4ff;
+      border-radius: 6px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      margin-top: 12px;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #edf3fb;
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Pipeline trong các khối của matrix coprocessor</h1>
+  <p>
+    Trang này chỉ đếm các stage xử lý chính. Một số state như snapshot, init, done
+    là bước chuẩn bị hoặc kết thúc, không tính là một stage chính của pipeline.
+  </p>
+
+  <section class="block">
+    <h2>PCPI wrapper</h2>
+    <div class="flow">
+      <div class="stage"><strong>Nhận lệnh</strong>Nhận <code>pcpi_valid</code>, decode nhóm lệnh và chốt metadata.</div>
+      <div class="stage"><strong>Giữ CPU chờ</strong>Kéo <code>pcpi_wait</code> trong lúc DMA/MAC/EW/MISC chạy.</div>
+      <div class="stage"><strong>Hoàn tất</strong>Nhận <code>core_done</code>, phát <code>pcpi_ready</code>, có thể ghi GPR.</div>
+    </div>
+    <div class="note">
+      PCPI không phải pipeline nhiều instruction. Nó xử lý từng lệnh matrix một:
+      nhận lệnh, giữ CPU chờ, rồi trả ready khi core xong.
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>DMA</h2>
+    <div class="flow">
+      <div class="stage"><strong>Tính row</strong>Tính địa chỉ row, số beat và byte strobe theo tile size.</div>
+      <div class="stage"><strong>Truyền dữ liệu</strong>Load: phát AR và nhận R. Store: phát AW/W và chờ B.</div>
+      <div class="stage"><strong>Cập nhật row</strong>Tăng row, hoặc báo DMA done khi hết row.</div>
+    </div>
+    <div class="note">
+      DMA có nhiều state giao thức như <code>ST_AR_REQ</code>, <code>ST_R_BURST</code>,
+      <code>ST_AW_REQ</code>, <code>ST_W_BURST</code>. Nhưng về mặt luồng chính có thể gộp
+      thành: tính row, truyền dữ liệu, chuyển row.
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>Element-wise</h2>
+    <div class="flow">
+      <div class="stage"><strong>Read</strong>Đọc regfile và chốt toán hạng vào <code>op_a_q</code>, <code>op_b_q</code>.</div>
+      <div class="stage"><strong>Execute</strong>Tính toán add/sub/mul/min/max/shift và xử lý saturation.</div>
+      <div class="stage"><strong>Write</strong>Ghi <code>result_q</code> về matrix regfile.</div>
+    </div>
+    <div class="note">
+      <code>ST_SNAPSHOT</code> chỉ là bước bảo vệ source cho lệnh dạng vector, không phải
+      stage tính toán chính. <code>ST_DONE</code> chỉ phát done cho core.
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>MAC systolic</h2>
+    <div class="flow">
+      <div class="stage"><strong>Chuẩn bị</strong>Chốt loại lệnh, tile size và nạp C ban đầu vào <code>pe_acc</code>.</div>
+      <div class="stage"><strong>Feed + Compute</strong>Chốt A/B input, dịch qua PE array, cập nhật <code>pe_acc += A * B</code>.</div>
+      <div class="stage"><strong>Writeback</strong>Ghi các giá trị <code>pe_acc</code> về accumulator register.</div>
+    </div>
+    <div class="note">
+      Trong RTL có <code>ST_FEED</code> và <code>ST_COMPUTE</code> tách riêng để cắt đường timing.
+      Khi giải thích ở mức kiến trúc, có thể gộp chúng thành stage compute của systolic array.
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>Vì sao pipeline tăng latency?</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Không pipeline</th>
+          <th>Có pipeline</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Một chu kỳ phải làm nhiều việc: đọc regfile, chọn toán hạng, tính toán, xử lý saturation, ghi kết quả.</td>
+          <td>Mỗi chu kỳ chỉ làm một phần: read một chu kỳ, execute một chu kỳ, write một chu kỳ.</td>
+        </tr>
+        <tr>
+          <td>Số chu kỳ ít hơn, nhưng đường tổ hợp dài hơn nên khó đạt tần số cao.</td>
+          <td>Đường tổ hợp ngắn hơn nên dễ đạt timing, nhưng cần nhiều chu kỳ hơn để xong một phần tử hoặc một lệnh.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="note">
+      Nói ngắn gọn: pipeline đổi độ trễ trong một chu kỳ thành nhiều chu kỳ nhỏ hơn.
+      Vì vậy tần số tối đa tăng, nhưng latency tính theo số chu kỳ cũng tăng.
+    </div>
+  </section>
+</main>
+</body>
+</html>
