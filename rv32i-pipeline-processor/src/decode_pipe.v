@@ -1,6 +1,7 @@
 module  decode_pipe(
   input wire clk,
   input wire rst,
+  input wire stall,
   input wire load_in,
   input wire store_in,
   input wire jalr_in,
@@ -59,6 +60,23 @@ module  decode_pipe(
       reg_write   <= 0;
       rs1         <= 0;
       rs2         <= 0;
+    end
+    else if (stall) begin
+      l           <= l;
+      s           <= s;
+      jalr        <= jalr;
+      nextsel     <= nextsel;
+      branch_res  <= branch_res;
+      mem_reg     <= mem_reg;
+      alu_con     <= alu_con;
+      opa_mux     <= opa_mux;
+      opb_mux     <= opb_mux;
+      opb_data    <= opb_data;
+      pre_address <= pre_address;
+      instruction <= instruction;
+      reg_write   <= reg_write;
+      rs1         <= rs1;
+      rs2         <= rs2;
     end
     else begin
       l           <= load_in;

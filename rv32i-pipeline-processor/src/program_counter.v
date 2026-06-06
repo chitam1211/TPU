@@ -1,6 +1,7 @@
 module pc (
     input wire clk,
     input wire rst,
+    input wire stall,
     input wire load,
     input wire jalr,
     input wire next_sel,
@@ -22,7 +23,11 @@ module pc (
 
         else begin
             pre_address  <= address_out;
-            if (next_sel | branch_reselt)begin
+            if (stall) begin
+                address_out <= address_out;
+                pre_address <= pre_address_pc;
+            end
+            else if (next_sel | branch_reselt)begin
                 address_out <= next_address;
             end
             else if (jalr)begin

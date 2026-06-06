@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RV32I Matrix Core v2 Datapaths</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --ink: #162033;
+      --muted: #5d697c;
+      --line: #9fb0c8;
+      --cpu: #dcecff;
+      --issue: #fff0c7;
+      --mem: #e2f7e9;
+      --reg: #f1e4ff;
+      --fu: #ffe4d6;
+      --csr: #e9eef7;
+      --accent: #245fd1;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.5;
+    }
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+    h1 { margin: 0 0 10px; font-size: 28px; }
+    h2 { margin: 0 0 12px; font-size: 20px; }
+    h3 { margin: 16px 0 8px; font-size: 16px; }
+    p { margin: 8px 0; color: var(--muted); }
+    code {
+      background: #eef2f7;
+      border-radius: 4px;
+      padding: 2px 5px;
+    }
+    .panel {
+      margin: 18px 0;
+      padding: 18px;
+      background: #fff;
+      border: 1px solid #dde5f0;
+      border-radius: 8px;
+    }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(90px, 1fr));
+      gap: 10px;
+      align-items: stretch;
+      margin: 14px 0;
+    }
+    .flow.five {
+      grid-template-columns: repeat(5, minmax(110px, 1fr));
+    }
+    .box {
+      min-height: 82px;
+      border: 2px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
+    .box strong { color: var(--ink); }
+    .cpu { background: var(--cpu); }
+    .issue { background: var(--issue); }
+    .mem { background: var(--mem); }
+    .reg { background: var(--reg); }
+    .fu { background: var(--fu); }
+    .csr { background: var(--csr); }
+    .arrow {
+      min-height: 82px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 24px;
+      position: relative;
+    }
+    .arrow::after {
+      content: "";
+      width: 36px;
+      height: 3px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      position: absolute;
+      bottom: 20px;
+      animation: pulse 1.2s linear infinite;
+    }
+    @keyframes pulse {
+      from { transform: translateX(-10px); opacity: .25; }
+      50% { opacity: 1; }
+      to { transform: translateX(10px); opacity: .25; }
+    }
+    .grid2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      margin-top: 12px;
+    }
+    th, td {
+      border: 1px solid #dde5f0;
+      padding: 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #edf3fb; }
+    .note {
+      border-left: 4px solid var(--accent);
+      background: #eef4ff;
+      border-radius: 6px;
+      padding: 12px 14px;
+      margin-top: 12px;
+    }
+    @media (max-width: 860px) {
+      .flow, .flow.five, .grid2 { grid-template-columns: 1fr; }
+      .arrow { min-height: 36px; transform: rotate(90deg); }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Datapath của RV32I Matrix Core v2</h1>
+  <p>
+    Bản v2 bỏ PCPI trong nhánh RV32I pipeline. Custom instruction được bắt ở tầng
+    Execute, làm stall pipeline 5 tầng, rồi đi vào <code>matrix_dispatch</code> và
+    các khối chức năng của <code>matrix_core_v2</code>.
+  </p>
+
+  <section class="panel">
+    <h2>Hình 1. Datapath dispatch/stall trong CPU 5 tầng</h2>
+    <div class="flow">
+      <div class="box cpu"><strong>IF</strong><span>fetch instruction</span></div>
+      <div class="arrow">→</div>
+      <div class="box cpu"><strong>ID</strong><span>đọc x-reg</span></div>
+      <div class="arrow">→</div>
+      <div class="box cpu"><strong>EX</strong><span>phát hiện opcode matrix</span></div>
+      <div class="arrow">→</div>
+      <div class="box issue"><strong>matrix_dispatch</strong><span>decode và điều phối lệnh</span></div>
+    </div>
+    <div class="flow five">
+      <div class="box issue"><strong>matrix_stall</strong><span>giữ PC, IF/ID, ID/EX</span></div>
+      <div class="arrow">→</div>
+      <div class="box cpu"><strong>EX/MEM bubble</strong><span>không cho lệnh matrix đi tiếp</span></div>
+      <div class="arrow">→</div>
+      <div class="box issue"><strong>matrix_done</strong><span>nhả pipeline</span></div>
+    </div>
+    <p class="note">
+      Điểm chính để trình bày: matrix instruction không còn đi qua PCPI. CPU pipeline trực tiếp issue
+      lệnh matrix ở EX, stall cho đến khi khối matrix báo done.
+    </p>
+  </section>
+
+  <section class="panel">
+    <h2>Hình 2. CONFIG datapath</h2>
+    <div class="flow">
+      <div class="box cpu"><strong>EX</strong><span>msettile*</span></div>
+      <div class="arrow">→</div>
+      <div class="box issue"><strong>matrix_dispatch</strong><span>start_cfg</span></div>
+      <div class="arrow">→</div>
+      <div class="box csr"><strong>CSR write</strong><span>mtilem/mtilen/mtilek</span></div>
+      <div class="arrow">→</div>
+      <div class="box reg"><strong>CSR outputs</strong><span>tile size cho LS/MAC/EW</span></div>
+    </div>
+    <table>
+      <tr><th>Lệnh</th><th>Tác động datapath</th></tr>
+      <tr><td><code>msettilem</code></td><td>Ghi số hàng M vào CSR <code>mtilem</code>.</td></tr>
+      <tr><td><code>msettilen</code></td><td>Ghi số cột N vào CSR <code>mtilen</code>.</td></tr>
+      <tr><td><code>msettilek</code></td><td>Ghi chiều tích lũy K vào CSR <code>mtilek</code>.</td></tr>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Hình 3. LOAD/STORE datapath</h2>
+    <div class="flow">
+      <div class="box cpu"><strong>EX</strong><span>mlae/mlbe/mlce<br>msae/msbe/msce</span></div>
+      <div class="arrow">→</div>
+      <div class="box issue"><strong>Tile LS FSM</strong><span>row, beat, address</span></div>
+      <div class="arrow">→</div>
+      <div class="box mem"><strong>Data memory port</strong><span>request/we/mask/address</span></div>
+      <div class="arrow">↔</div>
+      <div class="box reg"><strong>Matrix regfile</strong><span>tr0..tr3 / acc0..acc3</span></div>
+    </div>
+    <div class="grid2">
+      <div class="note">
+        <strong>Load:</strong>
+        <code>base = rs1</code>, <code>stride = rs2</code>. FSM đọc từng row trong data memory,
+        nhận word 32-bit, rồi ghi vào matrix regfile theo <code>reg,row,beat</code>.
+      </div>
+      <div class="note">
+        <strong>Store:</strong>
+        FSM đọc matrix regfile, phát word 32-bit ra data memory. Với partial row,
+        <code>mem_wstrb</code> chỉ bật các byte hợp lệ.
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Hình 4. MAC datapath</h2>
+    <div class="flow">
+      <div class="box reg"><strong>tr A</strong><span>packed INT8</span></div>
+      <div class="arrow">→</div>
+      <div class="box fu"><strong>MAC DiP</strong><span>permuted weight + PE array</span></div>
+      <div class="arrow">←</div>
+      <div class="box reg"><strong>tr B</strong><span>B lưu chuyển vị</span></div>
+      <div class="arrow">→</div>
+      <div class="box reg"><strong>acc C</strong><span>INT32 result</span></div>
+    </div>
+    <p class="note">
+      MAC đọc A/B từ regfile, tải weight B theo từng tile K=4, đưa A đi qua các PE,
+      cộng dồn vào accumulator nội bộ, rồi ghi 16 kết quả INT32 về <code>acc</code>.
+    </p>
+  </section>
+
+  <section class="panel">
+    <h2>Hình 5. EW datapath</h2>
+    <div class="flow">
+      <div class="box reg"><strong>acc/tr A</strong><span>source A</span></div>
+      <div class="arrow">→</div>
+      <div class="box fu"><strong>EW pipeline</strong><span>read → execute → write</span></div>
+      <div class="arrow">←</div>
+      <div class="box reg"><strong>acc/tr B</strong><span>source B hoặc vector row</span></div>
+      <div class="arrow">→</div>
+      <div class="box reg"><strong>dest</strong><span>ghi từng row/beat</span></div>
+    </div>
+    <table>
+      <tr><th>Nhóm</th><th>Datapath</th></tr>
+      <tr><td><code>.mm</code></td><td>Đọc A[row][beat] và B[row][beat], tính theo từng word, ghi C[row][beat].</td></tr>
+      <tr><td><code>.mv</code></td><td>Snapshot một row/vector của B, rồi dùng lại khi quét qua các row của A.</td></tr>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Hình 6. MISC datapath</h2>
+    <div class="flow five">
+      <div class="box issue"><strong>matrix_dispatch</strong><span>start_misc</span></div>
+      <div class="arrow">→</div>
+      <div class="box reg"><strong>Matrix regfile</strong><span>read source</span></div>
+      <div class="arrow">→</div>
+      <div class="box fu"><strong>MISC FSM</strong><span>move, zero, dup, slide</span></div>
+      <div class="arrow">→</div>
+      <div class="box reg"><strong>writeback</strong><span>matrix reg hoặc x-reg</span></div>
+    </div>
+    <p class="note">
+      MISC là nhóm thao tác dữ liệu: xóa accumulator, copy register, đưa 1 word sang GPR,
+      đưa GPR vào matrix register, duplicate word, hoặc slide dữ liệu theo row/column.
+    </p>
+  </section>
+</main>
+</body>
+</html>

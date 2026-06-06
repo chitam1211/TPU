@@ -1,6 +1,7 @@
 module fetch (
     input wire clk,
     input wire rst,
+    input wire stall,
     input wire next_sel,
     input wire valid,
     input wire load,
@@ -23,6 +24,7 @@ module fetch (
     (
         .clk(clk),
         .rst(rst),
+        .stall(stall),
         .load(load),
         .next_sel(next_sel),
         .jalr(jalr),

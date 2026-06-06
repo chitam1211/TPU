@@ -1,6 +1,7 @@
 module execute_pipe(
   input wire clk,
   input wire rst,
+  input wire bubble,
   input wire load_in,
   input wire store_in,
   input wire reg_write_in,
@@ -29,6 +30,17 @@ module execute_pipe(
 
   always @ (posedge clk or negedge rst) begin
     if (!rst) begin
+      load          <= 0;
+      store         <= 0;
+      mem_reg       <= 0;
+      opb_data      <= 0;
+      pre_address   <= 0;
+      instruction   <= 0;
+      alu_result    <= 0;
+      nextsel_addr  <= 0;
+      reg_write     <= 0;
+    end
+    else if (bubble) begin
       load          <= 0;
       store         <= 0;
       mem_reg       <= 0;
