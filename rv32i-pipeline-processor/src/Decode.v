@@ -11,6 +11,7 @@ module decode (
 
     output wire load,
     output wire store,
+    output wire matrix,
     output wire jalr,
     output wire next_sel,
     output wire branch_result,
@@ -46,6 +47,7 @@ module decode (
         .mem_to_reg(mem_to_reg),
         .Load(load),
         .Store(store),
+        .Matrix(matrix),
         .jalr_out(jalr),
         .Branch(branch),
         .load_control(load_control_signal),

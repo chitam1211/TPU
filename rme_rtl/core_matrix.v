@@ -41,6 +41,7 @@ module core_matrix (
     wire [31:0] pre_pc_addr_memstage , pre_pc_addr_wb;
     wire load_decode , load_execute , load_memstage;
     wire store_decode , store_execute , store_memstage;
+    wire matrix_decode , matrix_execute;
     wire jalr_decode;
     wire next_sel_decode , next_sel_execute;
     wire reg_write_decode , reg_write_execute , reg_write_memstage;
@@ -80,7 +81,7 @@ module core_matrix (
     wire [3:0]  matrix_mem_wstrb;
 
     localparam [6:0] OPCODE_MATRIX = 7'b0101011;
-    wire matrix_custom_execute = (instruction_execute[6:0] == OPCODE_MATRIX);
+    wire matrix_custom_execute = matrix_execute;
     assign matrix_stall = matrix_custom_execute && matrix_supported && !matrix_done;
     assign reg_write_rf_wb = matrix_wb_we | reg_write_wb;
     assign rd_wb_data = matrix_wb_we ? matrix_wb_data : rd_wb_data_cpu;
@@ -173,6 +174,7 @@ module core_matrix (
         .rs2(rs2_decode),
         .load(load_decode),
         .store(store_decode),
+        .matrix(matrix_decode),
         .jalr(jalr_decode),
         .next_sel(next_sel_decode),
         .reg_write_en_out(reg_write_decode),
@@ -192,6 +194,7 @@ module core_matrix (
         .stall(matrix_stall),
         .load_in(load_decode),
         .store_in(store_decode),
+        .matrix_in(matrix_decode),
         .jalr_in(jalr_decode),
         .next_sel_in(next_sel_decode),
         .mem_to_reg_in(mem_to_reg_decode),
@@ -209,6 +212,7 @@ module core_matrix (
         .jalr_out(jalr_execute),
         .load(load_execute),
         .store(store_execute),
+        .matrix(matrix_execute),
         .next_sel(next_sel_execute),
         .mem_to_reg(mem_to_reg_execute),
         .branch_result(branch_result_execute),
@@ -226,7 +230,7 @@ module core_matrix (
         (instruction_execute[6:0] == 7'b0110011) || // R-type
         (instruction_execute[6:0] == 7'b0100011) || // store
         (instruction_execute[6:0] == 7'b1100011) || // branch
-        (instruction_execute[6:0] == OPCODE_MATRIX);
+        matrix_execute;
 
     assign alu_in_a = ((rs1_execute != 5'b0) && (rs1_execute == rd_memstage))
                     ? alu_res_out_memstage : opa_mux_out_execute;

@@ -10,10 +10,12 @@ module control_decoder (
     input wire jalr,
     input wire lui,
     input wire auipc,
+    input wire matrix,
     input wire load_control,
 
     output reg Load,
     output reg Store,
+    output reg Matrix,
     output reg jalr_out,
     output reg [1:0] mem_to_reg,
     output reg reg_write,
@@ -32,6 +34,7 @@ always @(*) begin
     operand_b   = i_type | load | store | branch | jal | jalr | lui | auipc;
     Load        = load;
     Store       = store;
+    Matrix      = matrix;
     Branch      = branch;
     next_sel    = jal;
     jalr_out    = jalr;

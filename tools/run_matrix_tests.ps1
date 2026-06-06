@@ -1,3 +1,9 @@
+param(
+    [string[]] $Only = @(),
+    [switch] $PrintResults,
+    [switch] $TraceMac
+)
+
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
@@ -5,11 +11,39 @@ $Src = Join-Path $RepoRoot "rv32i-pipeline-processor\src"
 $Rme = Join-Path $RepoRoot "rme_rtl"
 $Sim = Join-Path $RepoRoot "sim"
 
+function Test-ShouldRun {
+    param([string] $Name)
+
+    if ($Only.Count -eq 0) {
+        return $true
+    }
+
+    foreach ($item in $Only) {
+        $normalized = $item.ToLower()
+        switch ($normalized) {
+            "config"     { if ($Name -eq "tb_matrix_config_v2") { return $true } }
+            "loadstore"  { if ($Name -eq "tb_matrix_load_store_v2") { return $true } }
+            "ls"         { if ($Name -eq "tb_matrix_load_store_v2") { return $true } }
+            "misc"       { if ($Name -eq "tb_matrix_misc_v2") { return $true } }
+            "ew"         { if ($Name -eq "tb_matrix_ew_v2") { return $true } }
+            "mac"        { if ($Name -eq "tb_matrix_mac_v2") { return $true } }
+            "system"     { if ($Name -eq "tb_rv32i_matrix_system") { return $true } }
+            default      { if ($Name -eq $item) { return $true } }
+        }
+    }
+
+    return $false
+}
+
 function Invoke-IverilogTest {
     param(
         [string] $Name,
         [string[]] $Sources
     )
+
+    if (-not (Test-ShouldRun $Name)) {
+        return
+    }
 
     $out = Join-Path $Sim "$Name.vvp"
     Write-Host "== $Name =="
@@ -17,7 +51,14 @@ function Invoke-IverilogTest {
     if ($LASTEXITCODE -ne 0) {
         throw "iverilog failed for $Name"
     }
-    & vvp $out
+    $vvpArgs = @($out)
+    if ($PrintResults) {
+        $vvpArgs += "+PRINT_RESULTS"
+    }
+    if ($TraceMac) {
+        $vvpArgs += "+TRACE_MAC"
+    }
+    & vvp @vvpArgs
     if ($LASTEXITCODE -ne 0) {
         throw "vvp failed for $Name"
     }

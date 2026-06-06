@@ -4,7 +4,7 @@ module tb_matrix_config_v2;
     `include "matrix_core_v2_tb_common.svh"
 
     initial begin
-        $dumpfile("rv32i-pipeline-processor/sim/tb_matrix_config_v2.vcd");
+        $dumpfile("sim/tb_matrix_config_v2.vcd");
         $dumpvars(0, tb_matrix_config_v2);
 
         reset_dut();

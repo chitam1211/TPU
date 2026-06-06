@@ -4,6 +4,7 @@ module  decode_pipe(
   input wire stall,
   input wire load_in,
   input wire store_in,
+  input wire matrix_in,
   input wire jalr_in,
   input wire next_sel_in,
   input wire branch_result_in,
@@ -20,6 +21,7 @@ module  decode_pipe(
 
   output wire load,
   output wire store,
+  output wire matrix,
   output wire jalr_out,
   output wire next_sel,
   output wire branch_result,
@@ -35,7 +37,7 @@ module  decode_pipe(
   output wire [31:0] instruction_out
  );
 
-  reg l,s,nextsel,branch_res,jalr;
+  reg l,s,matrix_q,nextsel,branch_res,jalr;
   reg reg_write;
   reg [1:0] mem_reg;
   reg [3:0] alu_con;
@@ -47,6 +49,7 @@ module  decode_pipe(
     if (!rst) begin
       l           <= 0;
       s           <= 0;
+      matrix_q    <= 0;
       jalr        <= 0;
       nextsel     <= 0;
       branch_res  <= 0;
@@ -64,6 +67,7 @@ module  decode_pipe(
     else if (stall) begin
       l           <= l;
       s           <= s;
+      matrix_q    <= matrix_q;
       jalr        <= jalr;
       nextsel     <= nextsel;
       branch_res  <= branch_res;
@@ -81,6 +85,7 @@ module  decode_pipe(
     else begin
       l           <= load_in;
       s           <= store_in;
+      matrix_q    <= matrix_in;
       jalr        <= jalr_in;
       nextsel     <= next_sel_in;
       branch_res  <= branch_result_in;
@@ -99,6 +104,7 @@ module  decode_pipe(
 
   assign load             = l;
   assign store            = s;
+  assign matrix           = matrix_q;
   assign rs1_out          = rs1;
   assign rs2_out          = rs2;
   assign jalr_out         = jalr;

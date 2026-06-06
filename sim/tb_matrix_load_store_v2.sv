@@ -8,7 +8,7 @@ module tb_matrix_load_store_v2;
     localparam int STRIDE_WORDS  = 32'h10 >> 2;
 
     initial begin
-        $dumpfile("rv32i-pipeline-processor/sim/tb_matrix_load_store_v2.vcd");
+        $dumpfile("sim/tb_matrix_load_store_v2.vcd");
         $dumpvars(0, tb_matrix_load_store_v2);
 
         reset_dut();
