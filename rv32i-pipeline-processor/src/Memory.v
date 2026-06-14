@@ -1,43 +1,43 @@
-module memory_stage (
-    input rst,
-    input wire load,
-    input wire store,
-    input wire valid,
-    input wire data_valid,
-    input wire [31:0] op_b,
-    input wire [31:0] alu_out_address,
-    input wire [31:0] instruction,
-    input wire [31:0] wrap_load_in,
+module memory#(
+    parameter INIT_MEM = 0
+)(
+    input wire clk,
+    input wire we_re,
+    input wire request,
+    input wire [7:0]address,
+    input wire [31:0]data_in,
+    input wire [3:0]mask,
 
-    output reg we_re,
-    output reg request,
-    output wire [3:0]  mask,
-    output wire [31:0] store_data_out,
-    output wire [31:0] wrap_load_out
-    );
+    output reg [31:0]data_out
+);
 
-    // WRAPPER MEMORY
-    wrappermem u_wrap_mem0 (
-        .data_i(op_b),
-        .byteadd(alu_out_address [1:0]),
-        .fun3(instruction [14:12]),
-        .mem_en(store),
-        .Load(load),
-        .wrap_load_in(wrap_load_in),
-        .masking(mask),
-        .data_valid(data_valid),
-        .data_o(store_data_out),
-        .wrap_load_out(wrap_load_out)
-    );
+    reg [31:0] mem [0:255];
 
-    always @ (*) begin
-        if (!valid & !load & !store) begin
-            request = 0;
-            we_re = 0;
+    initial begin
+        if (INIT_MEM)
+            $readmemh("/home/sarham/rv32i-pipeline-processor/rv32i-pipeline-processor/tb/instr.mem",mem);
+    end
+
+    always @(posedge clk) begin
+        if (request && we_re) begin
+            if(mask[0]) begin
+                mem[address][7:0] <= data_in[7:0];
+            end
+            if(mask[1]) begin
+                mem[address][15:8] <= data_in[15:8];
+            end
+            if(mask[2]) begin
+                mem[address][23:16] <= data_in[23:16];
+            end
+            if(mask[3]) begin
+                mem[address][31:24] <= data_in[31:24];
+            end
         end
+
         else begin
-            request = load | store ;
-            we_re = store ;
+            if (request && !we_re) begin
+                data_out <= mem[address];
+            end
         end
     end
 endmodule
