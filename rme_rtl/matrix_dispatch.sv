@@ -48,7 +48,8 @@ module matrix_dispatch #(
     logic [2:0] ctrl_imm3;
     logic       ctrl_bit25;
     logic [1:0] ctrl_size_xm;
-    logic [2:0] ms2, ms1, md;
+    logic [1:0] ms2;
+    logic [2:0] ms1, md;
     logic [1:0] s_size, d_size;
     logic [4:0] rd;
     logic       ls;
@@ -62,6 +63,8 @@ module matrix_dispatch #(
     logic is_cfg_msettilem, is_cfg_msettilemi, is_cfg_msettilen, is_cfg_msettileni;
     logic is_misc_mzero, is_misc_mmov_mm, is_misc_mmovw_x_m, is_misc_mmovw_m_x;
     logic is_misc_mdupw_m_x, is_misc_mrslidedown, is_misc_mcslidedown_w;
+    logic is_misc_mrslideup, is_misc_mcslideup_w;
+    logic is_misc_slide_same_bank;
     logic [2:0] size_sup;
     logic is_mmaccu_w_b, is_mmaccus_w_b, is_mmaccsu_w_b, is_mmacc_w_b;
     logic is_ls_mlae, is_ls_msae, is_ls_mlbe, is_ls_msbe, is_ls_mlce, is_ls_msce;
@@ -90,7 +93,7 @@ module matrix_dispatch #(
         ctrl_imm3    = matrix_insn[25:23];
         ctrl_bit25   = matrix_insn[25];
         ctrl_size_xm = matrix_insn[24:23];
-        ms2          = matrix_insn[22:20];
+        ms2          = matrix_insn[21:20];
         s_size       = matrix_insn[19:18];
         ms1          = matrix_insn[17:15];
         md           = matrix_insn[9:7];
@@ -99,7 +102,7 @@ module matrix_dispatch #(
         ls           = ctrl_bit25;
 
         ms1_reg_id = {1'b0, ms1[1:0]};
-        ms2_reg_id = {1'b0, ms2[1:0]};
+        ms2_reg_id = {1'b0, ms2};
         md_tr_id   = {1'b0, md[1:0]};
         md_acc_id  = {1'b1, md[1:0]};
 
@@ -136,11 +139,19 @@ module matrix_dispatch #(
         is_misc_mmovw_x_m     = is_group_misc && (func4 == 4'b0010) && (ctrl_size_xm == 2'b10);
         is_misc_mmovw_m_x     = is_group_misc && (func4 == 4'b0011) && ctrl_bit25 && is_size_w;
         is_misc_mdupw_m_x     = is_group_misc && (func4 == 4'b0011) && !ctrl_bit25 && is_size_w;
-        is_misc_mrslidedown   = is_group_misc && (func4 == 4'b0101) && (s_size == 2'b00) && is_size_b;
-        is_misc_mcslidedown_w = is_group_misc && (func4 == 4'b0111) && (s_size == 2'b10) && is_size_w;
+        is_misc_slide_same_bank = (md[2] == ms1[2]);
+        is_misc_mrslidedown   = is_group_misc && (func4 == 4'b0101) && (s_size == 2'b00) && is_size_b &&
+                                is_misc_slide_same_bank;
+        is_misc_mrslideup     = is_group_misc && (func4 == 4'b0110) && (s_size == 2'b00) && is_size_b &&
+                                is_misc_slide_same_bank;
+        is_misc_mcslidedown_w = is_group_misc && (func4 == 4'b0111) && (s_size == 2'b10) && is_size_w &&
+                                is_misc_slide_same_bank;
+        is_misc_mcslideup_w   = is_group_misc && (func4 == 4'b1000) && (s_size == 2'b10) && is_size_w &&
+                                is_misc_slide_same_bank;
         is_supported_misc = is_misc_mzero | is_misc_mmov_mm | is_misc_mmovw_x_m |
                             is_misc_mmovw_m_x | is_misc_mdupw_m_x |
-                            is_misc_mrslidedown | is_misc_mcslidedown_w;
+                            is_misc_mrslidedown | is_misc_mrslideup |
+                            is_misc_mcslidedown_w | is_misc_mcslideup_w;
 
         is_ls_mlae = is_group_ls && (func4 == 4'b0000) && !ls && is_size_b;
         is_ls_msae = is_group_ls && (func4 == 4'b0000) &&  ls && is_size_b;

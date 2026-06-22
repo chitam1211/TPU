@@ -101,7 +101,6 @@ module matrix_mac_v2 #(
     logic       latched_mmaccu_w_b;
     logic       latched_mmaccus_w_b;
     logic       latched_mmaccsu_w_b;
-    logic       latched_mmacc_w_b;
     logic [2:0] latched_ms1_reg_id;
     logic [2:0] latched_ms2_reg_id;
     logic [2:0] latched_md_acc_id;
@@ -270,7 +269,6 @@ module matrix_mac_v2 #(
             latched_mmaccu_w_b  <= 1'b0;
             latched_mmaccus_w_b <= 1'b0;
             latched_mmaccsu_w_b <= 1'b0;
-            latched_mmacc_w_b   <= 1'b0;
             latched_ms1_reg_id  <= '0;
             latched_ms2_reg_id  <= '0;
             latched_md_acc_id   <= '0;
@@ -313,7 +311,6 @@ module matrix_mac_v2 #(
                         latched_mmaccu_w_b  <= is_mmaccu_w_b;
                         latched_mmaccus_w_b <= is_mmaccus_w_b;
                         latched_mmaccsu_w_b <= is_mmaccsu_w_b;
-                        latched_mmacc_w_b   <= is_mmacc_w_b;
                         latched_ms1_reg_id  <= ms1_reg_id;
                         latched_ms2_reg_id  <= ms2_reg_id;
                         latched_md_acc_id   <= md_acc_id;

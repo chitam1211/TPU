@@ -41,11 +41,11 @@ module core_matrix (
     wire [31:0] pre_pc_addr_memstage , pre_pc_addr_wb;
     wire load_decode , load_execute , load_memstage;
     wire store_decode , store_execute , store_memstage;
-    wire matrix_decode , matrix_execute;
-    wire jalr_decode;
+    wire jalr_decode , jalr_execute;
     wire next_sel_decode , next_sel_execute;
-    wire reg_write_decode , reg_write_execute , reg_write_memstage;
+    wire reg_write_decode , reg_write_execute , reg_write_memstage , reg_write_wb;
     wire branch_result_decode , branch_result_execute;
+    wire matrix_decode , matrix_execute;
     wire [3:0]  mask;
     wire [31:0] cpu_store_data_out;
     wire        cpu_data_mem_we_re;
@@ -174,7 +174,6 @@ module core_matrix (
         .rs2(rs2_decode),
         .load(load_decode),
         .store(store_decode),
-        .matrix(matrix_decode),
         .jalr(jalr_decode),
         .next_sel(next_sel_decode),
         .reg_write_en_out(reg_write_decode),
@@ -184,7 +183,8 @@ module core_matrix (
         .instruction_rd(instruction_rf_wb),
         .alu_control(alu_control_decode),
         .opa_mux_out(opa_mux_out_decode),
-        .opb_mux_out(opb_mux_out_decode)
+        .opb_mux_out(opb_mux_out_decode),
+        .matrix_decode(matrix_decode)
     );
 
     //DECODE STAGE PIPELINE
@@ -194,11 +194,11 @@ module core_matrix (
         .stall(matrix_stall),
         .load_in(load_decode),
         .store_in(store_decode),
-        .matrix_in(matrix_decode),
         .jalr_in(jalr_decode),
         .next_sel_in(next_sel_decode),
         .mem_to_reg_in(mem_to_reg_decode),
         .branch_result_in(branch_result_decode),
+        .matrix_decode_in(matrix_decode),
         .opb_data_in(op_b_decode),
         .alu_control_in(alu_control_decode),
         .opa_mux_in(opa_mux_out_decode),
@@ -212,10 +212,10 @@ module core_matrix (
         .jalr_out(jalr_execute),
         .load(load_execute),
         .store(store_execute),
-        .matrix(matrix_execute),
         .next_sel(next_sel_execute),
         .mem_to_reg(mem_to_reg_execute),
         .branch_result(branch_result_execute),
+        .matrix_decode_out(matrix_execute),
         .opb_data_out(op_b_execute),
         .alu_control(alu_control_execute),
         .opa_mux_out(opa_mux_out_execute),
@@ -301,6 +301,7 @@ module core_matrix (
     //MEMORY STAGE PIPELINE
     memory_pipe u_memstagepipeline(
         .clk(clk),
+        .rst(rst),
         .mem_reg_in(mem_to_reg_memstage),
         .wrap_load_in(wrap_load_memstage),
         .alu_res(alu_res_out_memstage),

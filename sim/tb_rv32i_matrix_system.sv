@@ -120,38 +120,6 @@ module tb_rv32i_matrix_system;
         end
     endtask
 
-    task automatic print_results;
-        begin
-            $display("");
-            $display("A =");
-            $display("%0d\t%0d\t%0d\t%0d", 1, 2, 3, 4);
-            $display("%0d\t%0d\t%0d\t%0d", 5, 6, 7, 8);
-            $display("%0d\t%0d\t%0d\t%0d", 9, 10, 11, 12);
-            $display("%0d\t%0d\t%0d\t%0d", 13, 14, 15, 16);
-            $display("");
-            $display("B =");
-            $display("%0d\t%0d\t%0d\t%0d", 1, 2, 3, 4);
-            $display("%0d\t%0d\t%0d\t%0d", 5, 6, 7, 8);
-            $display("%0d\t%0d\t%0d\t%0d", 9, 10, 11, 12);
-            $display("%0d\t%0d\t%0d\t%0d", 13, 14, 15, 16);
-            $display("");
-            $display("C = A x B =");
-            $display("%0d\t%0d\t%0d\t%0d",
-                     dmem[C_BASE_WORD + 0], dmem[C_BASE_WORD + 1],
-                     dmem[C_BASE_WORD + 2], dmem[C_BASE_WORD + 3]);
-            $display("%0d\t%0d\t%0d\t%0d",
-                     dmem[C_BASE_WORD + 4], dmem[C_BASE_WORD + 5],
-                     dmem[C_BASE_WORD + 6], dmem[C_BASE_WORD + 7]);
-            $display("%0d\t%0d\t%0d\t%0d",
-                     dmem[C_BASE_WORD + 8], dmem[C_BASE_WORD + 9],
-                     dmem[C_BASE_WORD + 10], dmem[C_BASE_WORD + 11]);
-            $display("%0d\t%0d\t%0d\t%0d",
-                     dmem[C_BASE_WORD + 12], dmem[C_BASE_WORD + 13],
-                     dmem[C_BASE_WORD + 14], dmem[C_BASE_WORD + 15]);
-            $display("");
-        end
-    endtask
-
     initial begin
         for (int i = 0; i < ROM_WORDS; i++) rom[i] = NOP;
         rom[32] = ADDI_X1_A_BASE;
@@ -216,8 +184,6 @@ module tb_rv32i_matrix_system;
         mem_expect(C_BASE_WORD + 13, 32'd484);
         mem_expect(C_BASE_WORD + 14, 32'd542);
         mem_expect(C_BASE_WORD + 15, 32'd600);
-
-        if ($test$plusargs("PRINT_RESULTS")) print_results();
 
         if (errors == 0) $display("RV32I_MATRIX_SYSTEM_TEST_PASS");
         else $display("RV32I_MATRIX_SYSTEM_TEST_FAIL errors=%0d", errors);

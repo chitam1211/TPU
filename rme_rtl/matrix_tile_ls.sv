@@ -49,9 +49,10 @@ module matrix_tile_ls #(
         ST_CALC_ROW   = 3'd1,
         ST_LOAD_REQ   = 3'd2,
         ST_LOAD_WAIT  = 3'd3,
-        ST_STORE_REQ  = 3'd4,
-        ST_NEXT_BEAT  = 3'd5,
-        ST_NEXT_ROW   = 3'd6
+        ST_LOAD_WRITE = 3'd4,
+        ST_STORE_REQ  = 3'd5,
+        ST_NEXT_BEAT  = 3'd6,
+        ST_NEXT_ROW   = 3'd7
     } state_t;
 
     state_t state;
@@ -151,12 +152,6 @@ module matrix_tile_ls #(
     end
 
     assign ls_busy       = (state != ST_IDLE);
-    assign reg_id        = latched_target_id;
-    assign reg_row_idx   = row_cnt;
-    assign reg_beat_idx  = beat_cnt;
-    assign reg_wdata     = mem_rdata;
-    assign reg_we        = (state == ST_LOAD_WAIT) && mem_rvalid;
-
     assign reg_read_id   = latched_target_id;
     assign reg_read_row  = row_cnt;
     assign reg_read_beat = beat_cnt;
@@ -182,8 +177,14 @@ module matrix_tile_ls #(
             latched_tile_k      <= 32'b0;
             row_cnt             <= 3'b0;
             beat_cnt            <= 3'b0;
+            reg_we              <= 1'b0;
+            reg_id              <= 3'b0;
+            reg_row_idx         <= 3'b0;
+            reg_beat_idx        <= 3'b0;
+            reg_wdata           <= 32'b0;
         end else begin
             ls_done <= 1'b0;
+            reg_we  <= 1'b0;
 
             case (state)
                 ST_IDLE: begin
@@ -219,8 +220,17 @@ module matrix_tile_ls #(
 
                 ST_LOAD_WAIT: begin
                     if (mem_rvalid) begin
-                        state <= ST_NEXT_BEAT;
+                        reg_we       <= 1'b1;
+                        reg_id       <= latched_target_id;
+                        reg_row_idx  <= row_cnt;
+                        reg_beat_idx <= beat_cnt;
+                        reg_wdata    <= mem_rdata;
+                        state        <= ST_LOAD_WRITE;
                     end
+                end
+
+                ST_LOAD_WRITE: begin
+                    state <= ST_NEXT_BEAT;
                 end
 
                 ST_STORE_REQ: begin

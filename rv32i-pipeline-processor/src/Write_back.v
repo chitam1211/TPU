@@ -12,6 +12,7 @@ module write_back(
         .a(alu_out),
         .b(data_mem_out),
         .c(next_sel_address),
+        .d(32'b0),
         .sel(mem_to_reg),
         .out(rd_sel_mux_out)
     ); 

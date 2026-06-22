@@ -14,10 +14,10 @@ module controlunit (
     output wire jalr_out,
     output wire Store,
     output wire Branch,
-    output wire Matrix,
     output wire mem_en,
     output wire next_sel,
-    output wire [3:0] alu_control
+    output wire [3:0] alu_control,
+    output wire matrix_decode
 );
 
     wire r_type;
@@ -30,6 +30,8 @@ module controlunit (
     wire lui;
     wire auipc;
     wire matrix;
+
+    assign matrix_decode = matrix;
 
     type_decoder u_typedec0 (
         .opcode(opcode),
@@ -59,10 +61,8 @@ module controlunit (
         .jalr(jalr),
         .lui(lui),
         .auipc(auipc), 
-        .matrix(matrix),
         .next_sel(next_sel),
         .Branch(Branch),
-        .Matrix(Matrix),
         .Load(Load),
         .Store(Store),
         .jalr_out(jalr_out),

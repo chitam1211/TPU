@@ -38,6 +38,11 @@ logic [31:0] debug_mtilek;
 
 logic [31:0] dmem [0:255];
 int errors;
+bit verbose_data;
+
+initial begin
+    verbose_data = $test$plusargs("VERBOSE");
+end
 
 always #5 clk = ~clk;
 
@@ -114,6 +119,14 @@ function automatic logic [31:0] enc_cfg_reg(input logic [3:0] func4);
     enc_cfg_reg = enc_matrix(func4, 2'b00, 3'b100, 3'd0, 2'b00, 3'd0, 3'b000, 2'b00, 3'd0);
 endfunction
 
+function automatic logic [31:0] enc_cfg_none(input logic [3:0] func4);
+    enc_cfg_none = enc_matrix(func4, 2'b00, 3'b000, 3'd0, 2'b00, 3'd0, 3'b000, 2'b00, 3'd0);
+endfunction
+
+function automatic logic [31:0] enc_cfg_imm(input logic [3:0] func4, input logic [9:0] imm);
+    enc_cfg_imm = enc_matrix(func4, 2'b00, {1'b0, imm[9:8]}, imm[7:5], imm[4:3], imm[2:0], 3'b000, 2'b00, 3'd0);
+endfunction
+
 function automatic logic [31:0] enc_ls(
     input logic [3:0] matrix_sel,
     input logic       is_store,
@@ -142,6 +155,17 @@ function automatic logic [31:0] enc_misc(
     input logic [2:0] md
 );
     enc_misc = enc_matrix(func4, 2'b11, ctrl, ms2, s_size, ms1, 3'b000, d_size, md);
+endfunction
+
+function automatic logic [31:0] enc_misc_rd(
+    input logic [3:0] func4,
+    input logic [2:0] ctrl,
+    input logic [2:0] ms1,
+    input logic [2:0] ms2,
+    input logic [1:0] s_size,
+    input logic [4:0] rd
+);
+    enc_misc_rd = {func4, 2'b11, ctrl, ms2, s_size, ms1, 3'b000, rd, OPCODE_MATRIX};
 endfunction
 
 function automatic logic [31:0] enc_ew(
@@ -251,6 +275,141 @@ task automatic host_expect(
     end
 endtask
 
+task automatic issue_matrix_capture_wb(
+    input  logic [31:0] insn,
+    input  logic [31:0] rs1,
+    input  logic [31:0] rs2,
+    output logic        wb_we,
+    output logic [4:0]  wb_rd,
+    output logic [31:0] wb_data
+);
+    int guard;
+    begin
+        wb_we   = 1'b0;
+        wb_rd   = 5'b0;
+        wb_data = 32'b0;
+
+        @(negedge clk);
+        matrix_insn  = insn;
+        matrix_rs1   = rs1;
+        matrix_rs2   = rs2;
+        matrix_valid = 1'b1;
+
+        guard = 0;
+        while (!matrix_done && guard < 2000) begin
+            @(posedge clk);
+            guard++;
+        end
+
+        wb_we   = matrix_wb_we;
+        wb_rd   = matrix_wb_rd;
+        wb_data = matrix_wb_data;
+
+        if (guard >= 2000) begin
+            $display("ERROR timeout waiting for matrix_done insn=0x%08x", insn);
+            errors++;
+        end
+
+        @(negedge clk);
+        matrix_valid = 1'b0;
+        matrix_insn  = 32'b0;
+        matrix_rs1   = 32'b0;
+        matrix_rs2   = 32'b0;
+        @(posedge clk);
+    end
+endtask
+
+task automatic expect_unsupported_matrix(
+    input string label,
+    input logic [31:0] insn
+);
+    begin
+        @(negedge clk);
+        matrix_insn  = insn;
+        matrix_rs1   = 32'b0;
+        matrix_rs2   = 32'b0;
+        matrix_valid = 1'b1;
+        #1;
+        if (matrix_supported !== 1'b0) begin
+            $display("ERROR %s: matrix_supported=%0b expected 0", label, matrix_supported);
+            errors++;
+        end
+        @(negedge clk);
+        matrix_valid = 1'b0;
+        matrix_insn  = 32'b0;
+        @(posedge clk);
+    end
+endtask
+
+task automatic host_read_word(
+    input  logic [2:0] reg_id,
+    input  logic [2:0] row,
+    input  logic [2:0] beat,
+    output logic [31:0] data
+);
+    begin
+        @(negedge clk);
+        host_read_id   = reg_id;
+        host_read_row  = row;
+        host_read_beat = beat;
+        #1;
+        data = host_reg_rdata;
+    end
+endtask
+
+task automatic print_compare_word(
+    input string label,
+    input logic [31:0] rtl,
+    input logic [31:0] iss
+);
+    begin
+        if (rtl === iss) begin
+            $display("  %-22s RTL=0x%08x  ISS=0x%08x  OK", label, rtl, iss);
+        end else begin
+            $display("  %-22s RTL=0x%08x  ISS=0x%08x  DIFF", label, rtl, iss);
+        end
+    end
+endtask
+
+task automatic print_reg_matrix4(
+    input string label,
+    input logic [2:0] reg_id
+);
+    logic [31:0] w0;
+    logic [31:0] w1;
+    logic [31:0] w2;
+    logic [31:0] w3;
+    begin
+        $display("  %s", label);
+        for (int r = 0; r < 4; r++) begin
+            @(negedge clk); host_read_id = reg_id; host_read_row = r[2:0]; host_read_beat = 3'd0; #1; w0 = host_reg_rdata;
+            @(negedge clk); host_read_id = reg_id; host_read_row = r[2:0]; host_read_beat = 3'd1; #1; w1 = host_reg_rdata;
+            @(negedge clk); host_read_id = reg_id; host_read_row = r[2:0]; host_read_beat = 3'd2; #1; w2 = host_reg_rdata;
+            @(negedge clk); host_read_id = reg_id; host_read_row = r[2:0]; host_read_beat = 3'd3; #1; w3 = host_reg_rdata;
+            $display("    [%0d] %08x %08x %08x %08x", r, w0, w1, w2, w3);
+        end
+    end
+endtask
+
+task automatic print_dmem_tile(
+    input string label,
+    input int base_word,
+    input int rows,
+    input int beats,
+    input int stride_words
+);
+    begin
+        $display("  %s", label);
+        for (int r = 0; r < rows; r++) begin
+            $write("    [%0d]", r);
+            for (int b = 0; b < beats; b++) begin
+                $write(" %08x", dmem[base_word + r * stride_words + b]);
+            end
+            $write("\n");
+        end
+    end
+endtask
+
 task automatic mem_expect(
     input int word_addr,
     input logic [31:0] expected
@@ -259,6 +418,19 @@ task automatic mem_expect(
         if (dmem[word_addr] !== expected) begin
             $display("ERROR dmem[%0d]: got 0x%08x expected 0x%08x",
                      word_addr, dmem[word_addr], expected);
+            errors++;
+        end
+    end
+endtask
+
+task automatic word_expect(
+    input string label,
+    input logic [31:0] actual,
+    input logic [31:0] expected
+);
+    begin
+        if (actual !== expected) begin
+            $display("ERROR %s: got 0x%08x expected 0x%08x", label, actual, expected);
             errors++;
         end
     end

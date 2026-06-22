@@ -4,10 +4,10 @@ module  decode_pipe(
   input wire stall,
   input wire load_in,
   input wire store_in,
-  input wire matrix_in,
   input wire jalr_in,
   input wire next_sel_in,
   input wire branch_result_in,
+  input wire matrix_decode_in,
   input wire reg_write_in,
   input wire [4:0] rs1_in,
   input wire [4:0] rs2_in, 
@@ -21,10 +21,10 @@ module  decode_pipe(
 
   output wire load,
   output wire store,
-  output wire matrix,
   output wire jalr_out,
   output wire next_sel,
   output wire branch_result,
+  output wire matrix_decode_out,
   output wire reg_write_out,
   output wire [4:0] rs1_out,
   output wire [4:0] rs2_out,
@@ -37,7 +37,7 @@ module  decode_pipe(
   output wire [31:0] instruction_out
  );
 
-  reg l,s,matrix_q,nextsel,branch_res,jalr;
+  reg l,s,nextsel,branch_res,jalr,matrix_decode;
   reg reg_write;
   reg [1:0] mem_reg;
   reg [3:0] alu_con;
@@ -49,10 +49,10 @@ module  decode_pipe(
     if (!rst) begin
       l           <= 0;
       s           <= 0;
-      matrix_q    <= 0;
       jalr        <= 0;
       nextsel     <= 0;
       branch_res  <= 0;
+      matrix_decode <= 0;
       mem_reg     <= 0;
       alu_con     <= 0;
       opa_mux     <= 0;
@@ -67,10 +67,10 @@ module  decode_pipe(
     else if (stall) begin
       l           <= l;
       s           <= s;
-      matrix_q    <= matrix_q;
       jalr        <= jalr;
       nextsel     <= nextsel;
       branch_res  <= branch_res;
+      matrix_decode <= matrix_decode;
       mem_reg     <= mem_reg;
       alu_con     <= alu_con;
       opa_mux     <= opa_mux;
@@ -85,10 +85,10 @@ module  decode_pipe(
     else begin
       l           <= load_in;
       s           <= store_in;
-      matrix_q    <= matrix_in;
       jalr        <= jalr_in;
       nextsel     <= next_sel_in;
       branch_res  <= branch_result_in;
+      matrix_decode <= matrix_decode_in;
       mem_reg     <= mem_to_reg_in;
       alu_con     <= alu_control_in;
       opa_mux     <= opa_mux_in;
@@ -104,13 +104,13 @@ module  decode_pipe(
 
   assign load             = l;
   assign store            = s;
-  assign matrix           = matrix_q;
   assign rs1_out          = rs1;
   assign rs2_out          = rs2;
   assign jalr_out         = jalr;
   assign next_sel         = nextsel;
   assign reg_write_out    = reg_write;
   assign branch_result    = branch_res;
+  assign matrix_decode_out = matrix_decode;
   assign mem_to_reg       = mem_reg;
   assign alu_control      = alu_con;
   assign opa_mux_out      = opa_mux;
