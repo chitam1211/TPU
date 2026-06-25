@@ -137,7 +137,7 @@ module tb_rv32i_matrix_system;
     end
 
     initial begin
-        $dumpfile("rv32i-pipeline-processor/sim/tb_rv32i_matrix_system.vcd");
+        $dumpfile("sim/tb_rv32i_matrix_system.vcd");
         $dumpvars(0, tb_rv32i_matrix_system);
 
         clk = 1'b0;

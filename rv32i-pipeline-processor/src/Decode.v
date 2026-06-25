@@ -20,12 +20,14 @@ module decode (
     output wire [4:0]  rs1 , rs2,
     output wire [31:0] opb_data,
     output wire [31:0] opa_mux_out,
-    output wire [31:0] opb_mux_out
+    output wire [31:0] opb_mux_out,
+    output wire matrix_decode
     );
 
     wire branch;
     wire operand_a;
     wire operand_b;
+    wire mem_en_unused;
     wire [2:0]  imm_sel;
     wire [31:0] op_a , op_b;
     wire [31:0] imm_mux_out;
@@ -44,12 +46,14 @@ module decode (
         .operand_b(operand_b),
         .operand_a(operand_a),
         .mem_to_reg(mem_to_reg),
+        .mem_en(mem_en_unused),
         .Load(load),
         .Store(store),
         .jalr_out(jalr),
         .Branch(branch),
         .load_control(load_control_signal),
-        .alu_control(alu_control)
+        .alu_control(alu_control),
+        .matrix_decode(matrix_decode)
     );
 
     // IMMEDIATE GENERATION
@@ -69,6 +73,9 @@ module decode (
         .c(sb_immo),
         .d(uj_immo),
         .e(u_immo),
+        .f(32'b0),
+        .g(32'b0),
+        .h(32'b0),
         .sel(imm_sel),
         .out(imm_mux_out)
     );

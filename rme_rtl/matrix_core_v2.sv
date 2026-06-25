@@ -455,9 +455,9 @@ module matrix_core_v2 #(
         .reg_beat_idx(core_reg_beat_idx),
         .reg_wdata(core_reg_wdata),
 
-        .dma_read_id(host_read_id),
-        .dma_read_row(host_read_row),
-        .dma_read_beat(host_read_beat),
+        .host_read_id(host_read_id),
+        .host_read_row(host_read_row),
+        .host_read_beat(host_read_beat),
         .reg_rdata(host_reg_rdata),
 
         .mac_read_id_A(core_read_id_A),

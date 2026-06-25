@@ -10,10 +10,12 @@ module control_decoder (
     input wire jalr,
     input wire lui,
     input wire auipc,
+    input wire matrix,
     input wire load_control,
 
     output reg Load,
     output reg Store,
+    output reg Matrix,
     output reg jalr_out,
     output reg [1:0] mem_to_reg,
     output reg reg_write,
@@ -37,6 +39,8 @@ always @(*) begin
     Load = load;
     //store
     Store = store;
+    //matrix custom instruction
+    Matrix = matrix;
     //branch
     Branch =  branch;
     //selection for next address if any jump instrucion run

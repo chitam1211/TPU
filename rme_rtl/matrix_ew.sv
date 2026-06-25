@@ -54,10 +54,7 @@ module matrix_ew #(
 
     // Latched decode/config fields
     logic [3:0] func4;
-    logic [1:0] uop;
     logic [2:0] ctrl;
-    logic [1:0] s_size;
-    logic [1:0] d_size;
     logic [2:0] ms1_id;
     logic [2:0] ms2_id;
     logic [2:0] md_id;
@@ -207,10 +204,7 @@ module matrix_ew #(
             ew_reg_wdata    <= '0;
 
             func4       <= '0;
-            uop         <= '0;
             ctrl        <= '0;
-            s_size      <= '0;
-            d_size      <= '0;
             ms1_id      <= '0;
             ms2_id      <= '0;
             md_id       <= '0;
@@ -232,12 +226,9 @@ module matrix_ew #(
 
                     if (start_ew) begin
                         func4    <= matrix_insn[31:28];
-                        uop      <= matrix_insn[27:26];
                         ctrl     <= matrix_insn[25:23];
                         ms2_id   <= matrix_insn[22:20];
-                        s_size   <= matrix_insn[19:18];
                         ms1_id   <= matrix_insn[17:15];
-                        d_size   <= matrix_insn[11:10];
                         md_id    <= matrix_insn[9:7];
                         active_M <= cfg_M;
                         active_N <= cfg_N;

@@ -41,10 +41,11 @@ module core_matrix (
     wire [31:0] pre_pc_addr_memstage , pre_pc_addr_wb;
     wire load_decode , load_execute , load_memstage;
     wire store_decode , store_execute , store_memstage;
-    wire jalr_decode;
+    wire jalr_decode , jalr_execute;
     wire next_sel_decode , next_sel_execute;
-    wire reg_write_decode , reg_write_execute , reg_write_memstage;
+    wire reg_write_decode , reg_write_execute , reg_write_memstage , reg_write_wb;
     wire branch_result_decode , branch_result_execute;
+    wire matrix_decode , matrix_execute;
     wire [3:0]  mask;
     wire [31:0] cpu_store_data_out;
     wire        cpu_data_mem_we_re;
@@ -80,7 +81,7 @@ module core_matrix (
     wire [3:0]  matrix_mem_wstrb;
 
     localparam [6:0] OPCODE_MATRIX = 7'b0101011;
-    wire matrix_custom_execute = (instruction_execute[6:0] == OPCODE_MATRIX);
+    wire matrix_custom_execute = matrix_execute;
     assign matrix_stall = matrix_custom_execute && matrix_supported && !matrix_done;
     assign reg_write_rf_wb = matrix_wb_we | reg_write_wb;
     assign rd_wb_data = matrix_wb_we ? matrix_wb_data : rd_wb_data_cpu;
@@ -182,7 +183,8 @@ module core_matrix (
         .instruction_rd(instruction_rf_wb),
         .alu_control(alu_control_decode),
         .opa_mux_out(opa_mux_out_decode),
-        .opb_mux_out(opb_mux_out_decode)
+        .opb_mux_out(opb_mux_out_decode),
+        .matrix_decode(matrix_decode)
     );
 
     //DECODE STAGE PIPELINE
@@ -196,6 +198,7 @@ module core_matrix (
         .next_sel_in(next_sel_decode),
         .mem_to_reg_in(mem_to_reg_decode),
         .branch_result_in(branch_result_decode),
+        .matrix_decode_in(matrix_decode),
         .opb_data_in(op_b_decode),
         .alu_control_in(alu_control_decode),
         .opa_mux_in(opa_mux_out_decode),
@@ -212,6 +215,7 @@ module core_matrix (
         .next_sel(next_sel_execute),
         .mem_to_reg(mem_to_reg_execute),
         .branch_result(branch_result_execute),
+        .matrix_decode_out(matrix_execute),
         .opb_data_out(op_b_execute),
         .alu_control(alu_control_execute),
         .opa_mux_out(opa_mux_out_execute),
@@ -226,7 +230,7 @@ module core_matrix (
         (instruction_execute[6:0] == 7'b0110011) || // R-type
         (instruction_execute[6:0] == 7'b0100011) || // store
         (instruction_execute[6:0] == 7'b1100011) || // branch
-        (instruction_execute[6:0] == OPCODE_MATRIX);
+        matrix_execute;
 
     assign alu_in_a = ((rs1_execute != 5'b0) && (rs1_execute == rd_memstage))
                     ? alu_res_out_memstage : opa_mux_out_execute;
@@ -297,6 +301,7 @@ module core_matrix (
     //MEMORY STAGE PIPELINE
     memory_pipe u_memstagepipeline(
         .clk(clk),
+        .rst(rst),
         .mem_reg_in(mem_to_reg_memstage),
         .wrap_load_in(wrap_load_memstage),
         .alu_res(alu_res_out_memstage),

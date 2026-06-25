@@ -1,4 +1,4 @@
-module type_decoder (opcode,r_type,i_type,load,store,branch,jal,jalr,lui,auipc,valid,load_signal_controller);
+module type_decoder (opcode,r_type,i_type,load,store,branch,jal,jalr,lui,auipc,matrix,valid,load_signal_controller);
 
     input wire [6:0]opcode;
     input wire valid;
@@ -13,6 +13,7 @@ module type_decoder (opcode,r_type,i_type,load,store,branch,jal,jalr,lui,auipc,v
     output reg jalr;
     output reg lui;
     output reg auipc;
+    output reg matrix;
 
     always @(*)begin 
         r_type = 1'b0;
@@ -24,6 +25,7 @@ module type_decoder (opcode,r_type,i_type,load,store,branch,jal,jalr,lui,auipc,v
         jal = 1'b0; 
         jalr = 1'b0; 
         lui = 1'b0; 
+        matrix = 1'b0;
         case(opcode)
             7'b0110011:begin 
                 r_type = 1'b1;
@@ -57,6 +59,9 @@ module type_decoder (opcode,r_type,i_type,load,store,branch,jal,jalr,lui,auipc,v
             7'b0110111:begin 
                 lui = 1'b1;
             end
+            7'b0101011:begin
+                matrix = 1'b1;
+            end
 
             default:begin 
                 r_type = 1'b0;
@@ -68,6 +73,7 @@ module type_decoder (opcode,r_type,i_type,load,store,branch,jal,jalr,lui,auipc,v
                 jal = 1'b0; 
                 jalr = 1'b0; 
                 lui = 1'b0; 
+                matrix = 1'b0;
             end
         endcase
     end  

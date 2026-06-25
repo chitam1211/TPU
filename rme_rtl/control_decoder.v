@@ -10,10 +10,12 @@ module control_decoder (
     input wire jalr,
     input wire lui,
     input wire auipc,
+    input wire matrix,
     input wire load_control,
 
     output reg Load,
     output reg Store,
+    output reg Matrix,
     output reg jalr_out,
     output reg [1:0] mem_to_reg,
     output reg reg_write,

@@ -65,34 +65,52 @@ module matrix_misc #(
     logic op_mmov_mm;
     logic op_mmov_x_m;
     logic op_mmov_m_x;
-    logic op_mdup_m_x;
+    logic op_mdupw_m_x;
     logic op_mrslidedown;
     logic op_mcslidedown_w;
+    logic op_mrslideup;
+    logic op_mcslideup_w;
 
     // Operation flags (current instruction)
     logic op_mzero_insn;
     logic op_mmov_mm_insn;
     logic op_mmov_x_m_insn;
     logic op_mmov_m_x_insn;
-    logic op_mdup_m_x_insn;
+    logic op_mdupw_m_x_insn;
     logic op_mrslidedown_insn;
     logic op_mcslidedown_w_insn;
+    logic op_mrslideup_insn;
+    logic op_mcslideup_w_insn;
 
     // Helpers
     logic [2:0] row_idx_single;
     logic [2:0] beat_idx_single;
     logic [2:0] src_row_idx;
     logic [2:0] src_beat_idx;
+    logic       row_slide_oob;
+    logic       beat_slide_oob;
     logic [31:0] slide_snapshot [0:MATRIX_DIM-1][0:BEATS_PER_ROW-1];
+
+    function automatic logic same_reg_type(
+        input logic [2:0] reg_a,
+        input logic [2:0] reg_b
+    );
+        begin
+            same_reg_type = ((reg_a < 3'd4) && (reg_b < 3'd4)) ||
+                            ((reg_a >= 3'd4) && (reg_b >= 3'd4));
+        end
+    endfunction
 
     always_comb begin
         op_mzero         = (func4 == 4'b0000) && (uop == 2'b11) && (ctrl_imm3 == 3'b000);
         op_mmov_mm       = (func4 == 4'b0001) && (uop == 2'b11);
         op_mmov_x_m      = (func4 == 4'b0010) && (uop == 2'b11) && (ctrl_size_xm == 2'b10);
         op_mmov_m_x      = (func4 == 4'b0011) && (uop == 2'b11) && (ctrl_bit25 == 1'b1) && (d_size == 2'b10);
-        op_mdup_m_x      = (func4 == 4'b0011) && (uop == 2'b11) && (ctrl_bit25 == 1'b0) && (d_size == 2'b10);
-        op_mrslidedown   = (func4 == 4'b0101) && (uop == 2'b11) && (s_size == 2'b00) && (d_size == 2'b00);
-        op_mcslidedown_w = (func4 == 4'b0111) && (uop == 2'b11) && (s_size == 2'b10) && (d_size == 2'b10);
+        op_mdupw_m_x      = (func4 == 4'b0011) && (uop == 2'b11) && (ctrl_bit25 == 1'b0) && (d_size == 2'b10);
+        op_mrslidedown   = (func4 == 4'b0101) && (uop == 2'b11) && (s_size == 2'b00) && (d_size == 2'b00) && same_reg_type(md_id, ms1_id);
+        op_mcslidedown_w = (func4 == 4'b0111) && (uop == 2'b11) && (s_size == 2'b10) && (d_size == 2'b10) && same_reg_type(md_id, ms1_id);
+        op_mrslideup     = (func4 == 4'b0110) && (uop == 2'b11) && (s_size == 2'b00) && (d_size == 2'b00) && same_reg_type(md_id, ms1_id);
+        op_mcslideup_w   = (func4 == 4'b1000) && (uop == 2'b11) && (s_size == 2'b10) && (d_size == 2'b10) && same_reg_type(md_id, ms1_id);
     end
 
     always_comb begin
@@ -100,9 +118,11 @@ module matrix_misc #(
         op_mmov_mm_insn       = (matrix_insn[31:28] == 4'b0001) && (matrix_insn[27:26] == 2'b11);
         op_mmov_x_m_insn      = (matrix_insn[31:28] == 4'b0010) && (matrix_insn[27:26] == 2'b11) && (matrix_insn[24:23] == 2'b10);
         op_mmov_m_x_insn      = (matrix_insn[31:28] == 4'b0011) && (matrix_insn[27:26] == 2'b11) && (matrix_insn[25] == 1'b1) && (matrix_insn[11:10] == 2'b10);
-        op_mdup_m_x_insn      = (matrix_insn[31:28] == 4'b0011) && (matrix_insn[27:26] == 2'b11) && (matrix_insn[25] == 1'b0) && (matrix_insn[11:10] == 2'b10);
-        op_mrslidedown_insn   = (matrix_insn[31:28] == 4'b0101) && (matrix_insn[27:26] == 2'b11) && (matrix_insn[19:18] == 2'b00) && (matrix_insn[11:10] == 2'b00);
-        op_mcslidedown_w_insn = (matrix_insn[31:28] == 4'b0111) && (matrix_insn[27:26] == 2'b11) && (matrix_insn[19:18] == 2'b10) && (matrix_insn[11:10] == 2'b10);
+        op_mdupw_m_x_insn      = (matrix_insn[31:28] == 4'b0011) && (matrix_insn[27:26] == 2'b11) && (matrix_insn[25] == 1'b0) && (matrix_insn[11:10] == 2'b10);
+        op_mrslidedown_insn   = (matrix_insn[31:28] == 4'b0101) && (matrix_insn[27:26] == 2'b11) && (matrix_insn[19:18] == 2'b00) && (matrix_insn[11:10] == 2'b00) && same_reg_type(matrix_insn[9:7], matrix_insn[17:15]);
+        op_mcslidedown_w_insn = (matrix_insn[31:28] == 4'b0111) && (matrix_insn[27:26] == 2'b11) && (matrix_insn[19:18] == 2'b10) && (matrix_insn[11:10] == 2'b10) && same_reg_type(matrix_insn[9:7], matrix_insn[17:15]);
+        op_mrslideup_insn     = (matrix_insn[31:28] == 4'b0110) && (matrix_insn[27:26] == 2'b11) && (matrix_insn[19:18] == 2'b00) && (matrix_insn[11:10] == 2'b00) && same_reg_type(matrix_insn[9:7], matrix_insn[17:15]);
+        op_mcslideup_w_insn   = (matrix_insn[31:28] == 4'b1000) && (matrix_insn[27:26] == 2'b11) && (matrix_insn[19:18] == 2'b10) && (matrix_insn[11:10] == 2'b10) && same_reg_type(matrix_insn[9:7], matrix_insn[17:15]);
     end
 
     always_comb begin
@@ -113,18 +133,32 @@ module matrix_misc #(
     always_comb begin
         src_row_idx  = row_cnt;
         src_beat_idx = beat_cnt;
+        row_slide_oob = 1'b0;
+        beat_slide_oob = 1'b0;
 
         if (op_mrslidedown) begin
+            if ((row_cnt + ctrl_imm3) < MATRIX_DIM) begin
+                src_row_idx = row_cnt + ctrl_imm3;
+            end else begin
+                row_slide_oob = 1'b1;
+            end
+        end else if (op_mrslideup) begin
             if (row_cnt >= ctrl_imm3) begin
                 src_row_idx = row_cnt - ctrl_imm3;
             end else begin
-                src_row_idx = row_cnt + MATRIX_DIM - ctrl_imm3;
+                row_slide_oob = 1'b1;
             end
         end else if (op_mcslidedown_w) begin
+            if ((beat_cnt + ctrl_imm3) < BEATS_PER_ROW) begin
+                src_beat_idx = beat_cnt + ctrl_imm3;
+            end else begin
+                beat_slide_oob = 1'b1;
+            end
+        end else if (op_mcslideup_w) begin
             if (beat_cnt >= ctrl_imm3) begin
                 src_beat_idx = beat_cnt - ctrl_imm3;
             end else begin
-                src_beat_idx = beat_cnt + BEATS_PER_ROW - ctrl_imm3;
+                beat_slide_oob = 1'b1;
             end
         end
     end
@@ -140,7 +174,7 @@ module matrix_misc #(
             read_row_A  = row_idx_single;
             read_beat_A = beat_idx_single;
         end else if (op_mmov_mm ||
-                    ((op_mrslidedown || op_mcslidedown_w) && (state != ST_SNAPSHOT))) begin
+                    ((op_mrslidedown || op_mcslidedown_w || op_mrslideup || op_mcslideup_w) && (state != ST_SNAPSHOT))) begin
             read_id_A   = ms1_id;
             read_row_A  = src_row_idx;
             read_beat_A = src_beat_idx;
@@ -197,9 +231,9 @@ module matrix_misc #(
                         rs1_val      <= matrix_rs1;
                         rs2_val      <= matrix_rs2;
 
-                        if (op_mmov_x_m_insn || op_mmov_m_x_insn || op_mdup_m_x_insn) begin
+                        if (op_mmov_x_m_insn || op_mmov_m_x_insn || op_mdupw_m_x_insn) begin
                             state <= ST_SINGLE;
-                        end else if (op_mrslidedown_insn || op_mcslidedown_w_insn) begin
+                        end else if (op_mrslidedown_insn || op_mcslidedown_w_insn || op_mrslideup_insn || op_mcslideup_w_insn) begin
                             state <= ST_SNAPSHOT;
                         end else if (op_mzero_insn || op_mmov_mm_insn) begin
                             state <= ST_LOOP;
@@ -237,7 +271,7 @@ module matrix_misc #(
                         misc_reg_beat_idx<= beat_idx_single;
                         misc_reg_wdata   <= rs2_val;
                         state <= ST_DONE;
-                    end else if (op_mdup_m_x) begin
+                    end else if (op_mdupw_m_x) begin
                         misc_reg_we      <= 1'b1;
                         misc_reg_id      <= md_id;
                         misc_reg_row_idx <= row_cnt;
@@ -259,9 +293,13 @@ module matrix_misc #(
                         misc_reg_wdata <= 32'b0;
                     end else if (op_mmov_mm) begin
                         misc_reg_wdata <= read_data_A;
-                    end else if (op_mrslidedown || op_mcslidedown_w) begin
+                    end else if ((op_mrslidedown || op_mrslideup) && row_slide_oob) begin
+                        misc_reg_wdata <= 32'b0;
+                    end else if ((op_mcslidedown_w || op_mcslideup_w) && beat_slide_oob) begin
+                        misc_reg_wdata <= 32'b0;
+                    end else if (op_mrslidedown || op_mcslidedown_w || op_mrslideup || op_mcslideup_w) begin
                         misc_reg_wdata <= slide_snapshot[src_row_idx][src_beat_idx];
-                    end else if (op_mdup_m_x) begin
+                    end else if (op_mdupw_m_x) begin
                         misc_reg_wdata <= rs2_val;
                     end else begin
                         misc_reg_wdata <= 32'b0;

@@ -17,15 +17,15 @@ module pc (
     reg [31:0] pre_address;
     always @(posedge clk or negedge rst) begin
         if(!rst)begin
-            address_out <= 0;
-            pre_address  <= address_out;
+            address_out <= 32'b0;
+            pre_address <= 32'b0;
         end
 
         else begin
             pre_address  <= address_out;
             if (stall) begin
                 address_out <= address_out;
-                pre_address <= pre_address_pc;
+                pre_address <= pre_address;
             end
             else if (next_sel | branch_reselt)begin
                 address_out <= next_address;
@@ -35,7 +35,7 @@ module pc (
             end
             else if ((load && !dmem_valid))begin
                 address_out <= address_out;
-                pre_address <= pre_address_pc;
+                pre_address <= pre_address;
             end
             else begin
                 address_out <= address_out + 32'd4;

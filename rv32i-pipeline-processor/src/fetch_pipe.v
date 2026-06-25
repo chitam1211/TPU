@@ -21,6 +21,7 @@ module fetch_pipe(
       pre_address     <= 32'b0;
       instruc         <= 32'b0;
       flush_pipeline  <= 0;
+      flush_pipeline2 <= 0;
     end
     else begin
       if (stall) begin
