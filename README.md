@@ -1,286 +1,133 @@
-# TPU Simulator - RISC-V Matrix Extension
+# KLTN - RISC-V RV32IF with FP32 Matrix Extension
 
 ## Overview
-This project is an instruction set simulator for the RISC-V Matrix Extension. It supports these instruction groups:
 
-- Matrix multiply-accumulate
-- Load and store
-- Elementwise operations
-- Configuration
+This repository contains the graduation thesis project:
 
-## Requirements
+**Designing a microprocessor based on the RISC-V RV32IF instruction set architecture with floating-point matrix extension.**
 
-- Python 3.8 or newer
-- numpy is optional and only needed for float16 tests
+The project extends the previous RV32I processor and integer matrix coprocessor by adding:
 
-Optional Python packages:
+- RV32IF 5-stage pipelined processor
+- Floating-point register file
+- Scalar FP32 instruction support
+- FP32 matrix operations
+- Matrix coprocessor integration
+- RTL verification and ISA-based reference checking
+- FPGA-oriented implementation and evaluation
 
-- numpy for float16 tests
-- streamlit and pandas for the web app
+## Project Structure
 
-Standard library modules used include struct, random, subprocess, pathlib, os, sys, re, math.
-
-## Setup
-
-### Quick start
-```bash
-git clone <repository-url>
-cd TPU
-python validate_setup.py
-```
-
-Optional installs:
-```bash
-pip install numpy
-pip install streamlit pandas
-```
-
-## Setup checklist
-
-Follow these steps on a new machine.
-
-### Step 1. Clone the repository
-```bash
-git clone https://github.com/chitam1211/TPU.git
-cd TPU
-git checkout oop_ver
-```
-
-### Step 2. Check the Python version
-```bash
-python --version
-```
-
-Required: Python 3.8 or newer.
-
-### Step 3. Run the validation script
-```bash
-python validate_setup.py
-```
-
-If all checks pass, skip Step 4 and go to Step 5.
-
-### Step 4. Fix common issues
-
-Error: Cannot import iss
-```bash
-pwd
-```
-
-You should be in the project root directory, not inside iss.
-
-Error: Python version too old
-```bash
-python3.10 --version
-```
-
-Error: Missing files
-```bash
-git pull origin oop_ver
-git status
-```
-
-Warning: numpy not installed
-```bash
-pip install numpy
-```
-
-### Step 5. Run a quick simulator test
-```bash
-python -m iss.run_simulator
-```
-
-Optional test script:
-```bash
-cd iss
-python test_loadstore.py
-```
-
-### Step 6. VS Code setup
-
-1. Open the TPU folder in VS Code
-2. Install the Python extension (ms-python.python)
-3. Install the Pylance extension (ms-python.vscode-pylance)
-4. Reload the window
-5. Check the Problems panel for errors
-
-### Step 7. Final validation
-```bash
-python validate_setup.py
-```
-
-Expected result:
-```
-Passed: 9/9
-ALL CHECKS PASSED
-```
-
-## Advanced troubleshooting
-
-Windows encoding errors:
-```powershell
-$env:PYTHONIOENCODING="utf-8"
-python -m iss.run_simulator
-```
-
-Pylance attribute not found:
-
-This is addressed in .vscode/settings.json. Reload the VS Code window if it persists.
-
-Import errors with __init__.py present:
-```bash
-rm -rf iss/__pycache__
-rm -rf assembler/__pycache__
-```
-
-On Windows:
-```powershell
-rmdir /s iss\__pycache__
-rmdir /s assembler\__pycache__
-```
-
-After all checks pass, you can:
-
-- Run the simulator: python -m iss.run_simulator
-- Run the assembler: cd assembler and python assembler.py
-- Run tests: cd iss and python test_loadstore.py
-- Commit changes: git add . and git commit -m "message" and git push
-
-## Project layout
-```
+```text
 TPU/
-├── assembler/          # Assembly encoder
-│   ├── assembler.py
-│   ├── assembly.txt    # Input assembly
-│   └── machine_code.txt # Output machine code
-│
-├── iss/                # Instruction set simulator
-│   ├── iss.py          # Main simulator
-│   ├── components.py   # CPU components
-│   ├── definitions.py  # Constants and definitions
-│   ├── converters.py   # Float and int converters
-│   ├── logic_*.py      # Instruction logic
-│   ├── state_manager.py
-│   ├── run_simulator.py
-│   ├── test_loadstore.py
-│   └── *.txt           # State files
-│
-└── README.md
+└── kltn/
+    ├── rtl/
+    │   ├── core/        # RV32I baseline
+    │   ├── core_if/     # RV32IF development
+    │   └── matrix/      # Matrix coprocessor
+    │
+    ├── tb/              # RTL testbenches
+    ├── assembler/       # Instruction assembler
+    ├── iss/             # Instruction set simulator
+    ├── scripts/         # Test and utility scripts
+    ├── constraints/     # FPGA constraints
+    ├── docs/            # Project documentation
+    └── reports/         # Development reports
 ```
 
-## Usage
+## Current Development
 
-### Run the simulator
-```bash
-python -m iss.run_simulator
-```
+The current development focuses on extending the RV32I baseline processor to RV32IF.
 
-### Run load and store tests
-```bash
-cd iss
-python test_loadstore.py
-```
+Current work includes:
 
-The test script runs five cases:
+- Integer register file fixes
+- FP32 register file
+- FLW and FSW support
+- FP32 FADD.S and FSUB.S execution
+- FCSR, rounding mode, and floating-point exception support
+- RTL testbenches for scalar floating-point functions
+- Pipeline control and hazard handling for floating-point instructions
 
-1. mlae32 and msae32 for float32 load and store
-2. mlae16 and msae16 for float16 load and store
-3. mlbe8 and msbe8 for int8 load and store
-4. mlce32 and msce32 for float32 column load and store
-5. mlce8 and msce8 for int8 column load and store
+The matrix subsystem currently contains the inherited integer matrix accelerator and will be extended with FP32 matrix processing.
 
-### Basic workflow
+## Matrix Extension Scope
 
-1. Write assembly code to assembler/assembly.txt
-2. Run the assembler: cd assembler and python assembler.py
-3. Run the simulator: cd .. and python -m iss.run_simulator
-4. Inspect state files in iss/
+The floating-point matrix extension focuses on FP32 operations.
 
-## State files in iss
+Planned FP32 matrix instructions include:
 
-- memory.txt - RAM contents
-- gpr.txt - 32 general purpose registers
-- matrix.txt - tile registers, integer
-- matrix_float.txt - tile registers, float
-- acc.txt - accumulator registers, integer
-- acc_float.txt - accumulator registers, float
-- config.txt - CSR configuration registers
-- status.txt - status flags
+- Matrix multiply-accumulate: `mfmacc.s`
+- Element-wise addition: `mfadd.s.mm`
+- Element-wise subtraction: `mfsub.s.mm`
+- Element-wise multiplication: `mfmul.s.mm`
+- Element-wise maximum: `mfmax.s.mm`
+- Element-wise minimum: `mfmin.s.mm`
 
-## Troubleshooting
+The project does not target FP8, FP16, BF16, FP64, or mixed-precision matrix operations.
 
-### Import errors
-If you see ModuleNotFoundError or cannot import name:
+## Verification
 
-- Run from the project root directory
-- Use python -m iss.run_simulator instead of python iss/run_simulator.py
+The design is verified using:
 
-### Float16 errors
-If test_loadstore.py fails on float16:
-```bash
-pip install numpy
-```
+- RTL unit testbenches
+- Integration testbenches
+- Controlled and randomized test cases
+- ISA reference model comparison
+- Cycle and CPI measurements
+- FPGA synthesis reports
 
-### Windows encoding errors
-If you see UnicodeEncodeError:
+FPGA evaluation focuses on:
 
-- The code attempts to set UTF-8 automatically
-- You can also set PYTHONIOENCODING to utf-8
+- FMAX
+- LUT usage
+- Flip-flop usage
+- BRAM usage
 
-## Features
+## Development Directory
 
-### Simulator
-
-- Matrix multiply-accumulate, signed, unsigned, and mixed
-- Float operations, FP16, FP32, BF16
-- Load and store, alignment, block, and column modes
-- Elementwise operations
-- Configuration via CSR
-- RAM simulation and state persistence to text files
-
-### Test scripts
-
-- Random data generation
-- Sequential testing
-- Automatic verification
-- Detailed result display
-
-## Binary printing
-
-The test scripts can print binary instruction encodings and register values.
-
-What it shows:
-
-- 32 bit instruction encoding
-- 512 bit register dumps split into four 128 bit chunks, little endian
-
-Key module:
-
-- iss/binary_print_utils.py provides instruction and register formatting helpers
-
-Tests that use it:
-
-- iss/test_elementwise.py
-- iss/test_matmul.py
-- iss/test_loadstore.py
-- iss/test_misc.py
-
-Example commands:
+Main project directory:
 
 ```bash
-cd iss
-python test_elementwise.py --auto
-python test_matmul.py --auto
-python test_loadstore.py --auto
-python test_misc.py --auto
+cd kltn
 ```
 
-Data type notes:
+## Main RTL Directories
 
-- float32 and int32 produce full 512 bit output
-- float16 and int8 are padded to 512 bits
+```text
+kltn/rtl/core/
+```
 
-## Contributing
-To report bugs or contribute, please open an issue or a pull request.
+Original RV32I baseline used as a reference.
 
+```text
+kltn/rtl/core_if/
+```
 
+Active RV32IF processor development.
+
+```text
+kltn/rtl/matrix/
+```
+
+Matrix coprocessor and matrix execution units.
+
+## Testbench Directory
+
+```text
+kltn/tb/
+```
+
+Contains RTL testbenches for the processor and floating-point modules.
+
+## Scripts
+
+```text
+kltn/scripts/
+```
+
+Contains scripts used for test generation and regression testing.
+
+## Notes
+
+Generated simulation files, build outputs, logs, waveform files, archives, and local reference documents are excluded from version control through `.gitignore`.
