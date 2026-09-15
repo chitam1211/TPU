@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Local, conservative daily checkpoints for KLTN. Requires Python 3.9+ and Git."""
+"""Local KLTN checkpoints on demand or on a schedule. Requires Python 3.9+ and Git."""
 
 import argparse
 from collections import Counter
-from contextlib import contextmanager
-from dataclasses import dataclass
-from datetime import date, datetime
-import hashlib
+from contextlib import contextmanager, nullcontext
+from dataclasses import dataclass, field
+from datetime import datetime
+import errno
+import json
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -19,7 +20,26 @@ BRANCH = "master"
 
 
 class SafetyError(RuntimeError):
+    def __init__(self, message, result="ERROR"):
+        super().__init__(message)
+        self.result = result
+
+
+class LockBusy(SafetyError):
     pass
+
+
+@dataclass
+class RunInfo:
+    started_at: datetime = field(default_factory=lambda: datetime.now().astimezone())
+    branch: str = "unknown"
+    files_changed: int = 0
+    files_counted: bool = False
+    result: str = "ERROR"
+    commit_hash: str = ""
+    mode: str = "commit"
+    message: str = ""
+    detail: str = ""
 
 
 @dataclass(frozen=True)
@@ -69,12 +89,13 @@ def get_current_branch(repo):
 
 def check_repository_state(repo):
     if git(repo, "diff", "--name-only", "--diff-filter=U", "-z"):
-        raise SafetyError("Merge conflicts exist; resolve them manually first.")
+        raise SafetyError("Merge conflicts exist; resolve them manually first.", "BLOCKED_CONFLICT")
     branch = get_current_branch(repo)
     if not branch:
-        raise SafetyError("Detached HEAD; no commit created.")
+        raise SafetyError("Detached HEAD; no commit created.", "BLOCKED_WRONG_BRANCH")
     if branch != BRANCH:
-        raise SafetyError(f"Current branch is {branch!r}, not {BRANCH!r}; no branch switch.")
+        raise SafetyError(f"Current branch is {branch!r}, not {BRANCH!r}; no branch switch.",
+                          "BLOCKED_WRONG_BRANCH")
     git(repo, "rev-parse", "--verify", "HEAD")
     for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD",
                    "rebase-merge", "rebase-apply", "sequencer", "BISECT_LOG", "index.lock"):
@@ -214,8 +235,9 @@ def generate_change_summary(changes, max_lines=10):
     return lines
 
 
-def build_commit_message(changes, today=None):
-    return f"Daily KLTN update {today or date.today().isoformat()}\n\n" + "\n".join(
+def build_commit_message(changes, timestamp=None):
+    timestamp = timestamp or datetime.now().astimezone()
+    return f"KLTN checkpoint {timestamp:%Y-%m-%d %H:%M}\n\n" + "\n".join(
         "- " + line for line in generate_change_summary(changes)
     ) + "\n"
 
@@ -261,15 +283,19 @@ def state_directory(repo):
     return state
 
 
-def write_log(state, message):
+def write_log(state, info):
+    # One JSON object per line keeps messages/errors unambiguous and searchable.
+    record = {**vars(info), "timestamp": info.started_at.isoformat(timespec="seconds")}
+    del record["started_at"]
     with (state / "auto_commit.log").open("a", encoding="utf-8") as log:
-        log.write(f"[{datetime.now().astimezone().isoformat(timespec='seconds')}] {message}\n")
+        log.write(json.dumps(record, ensure_ascii=True) + "\n")
 
 
 @contextmanager
-def run_lock(state, repo):
-    key = hashlib.sha256(os.fsencode(os.path.normcase(str(repo.resolve())))).hexdigest()[:16]
-    with (state / f"{key}.lock").open("a+b") as handle:
+def run_lock(state):
+    # Keep the file after unlock: unlinking it can let competing processes lock
+    # different inodes. The OS lock, not the file's presence, indicates ownership.
+    with (state / "auto_commit.lock").open("a+b") as handle:
         if os.name == "nt":
             import msvcrt
             if handle.tell() == 0:
@@ -279,13 +305,17 @@ def run_lock(state, repo):
             try:
                 msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
             except OSError as error:
-                raise SafetyError("Another daily checkpoint is running.") from error
+                if error.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                    raise
+                raise LockBusy("Another KLTN checkpoint is running; skipping this run.", "SKIPPED_LOCK") from error
         else:
             import fcntl
             try:
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except OSError as error:
-                raise SafetyError("Another daily checkpoint is running.") from error
+                if error.errno not in (errno.EACCES, errno.EAGAIN):
+                    raise
+                raise LockBusy("Another KLTN checkpoint is running; skipping this run.", "SKIPPED_LOCK") from error
         try:
             yield
         finally:
@@ -296,10 +326,10 @@ def run_lock(state, repo):
                 fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def print_preview(repo, branch, changes, message, stat):
+def print_preview(repo, branch, changes, message, stat, timestamp):
     print("=" * 40)
-    print("KLTN DAILY COMMIT")
-    print(f"Date: {date.today().isoformat()}\nBranch: {branch}\nRepository: {repo}")
+    print("KLTN CHECKPOINT")
+    print(f"Date: {timestamp:%Y-%m-%d %H:%M}\nBranch: {branch}\nRepository: {repo}")
     print(f"Files changed: {len(changes)}")
     for change in changes:
         print(f"  {change.status:8} {change.path!r}")
@@ -309,68 +339,100 @@ def print_preview(repo, branch, changes, message, stat):
     print("=" * 40, flush=True)
 
 
-def run(repo, state, args):
-    with run_lock(state, repo):
-        branch = check_repository_state(repo)
-        head = git(repo, "rev-parse", "HEAD")
-        selected, excluded = classify_changes(repo, get_changed_files(repo))
-        for change, reason in excluded:
-            print(f"Skip {change.path!r}: {reason}")
-        if not selected:
-            print("No eligible KLTN changes; nothing to commit.")
-            write_log(state, "No eligible changes.")
-            return
-        preview = args.dry_run or args.show_summary
-        cached_before = git(repo, "diff", "--cached", "--no-ext-diff", "--no-textconv", "--binary")
-        if cached_before and not preview:
-            raise SafetyError("Index already has staged changes. Commit or unstage them manually first.")
-        changes = collect_diffs(repo, selected)
-        # Run the requested worktree check and also check existing staged changes.
-        git(repo, "diff", "--check")
-        git(repo, "diff", "--cached", "--check")
-        stat = tracked_diff_stat(repo, changes)
-        message = build_commit_message(changes)
-        print_preview(repo, branch, changes, message, stat)
-        if preview:
-            if cached_before:
-                print("NOTE: Existing staged changes will block a normal run.")
-            print("Preview only: no git add, commit or push. Untracked whitespace is checked after staging in a normal run.")
-            write_log(state, "Preview only.\n" + message)
-            return
-        check_repository_state(repo)
-        if git(repo, "rev-parse", "HEAD") != head or git(repo, "diff", "--cached", "--name-only", "-z"):
-            raise SafetyError("HEAD/index changed during analysis; retry when Git is idle.")
-        # Keep the user's files and index intact on failure; never reset/clean.
-        stage_changes(repo, changes)
-        staged_fingerprint = index_fingerprint(repo)
-        staged = git(repo, "diff", "--cached", "--name-status", "--no-renames", "-z").split(b"\0")
-        staged_paths = {decode(staged[i]) for i in range(1, len(staged) - 1, 2)}
-        expected = {c.path for c in changes}
-        if staged_paths != expected:
-            raise SafetyError("Staged paths changed unexpectedly; inspect the index manually.")
-        git(repo, "diff", "--check")
-        git(repo, "diff", "--cached", "--check")
-        staged_changes = []
-        for i in range(0, len(staged) - 1, 2):
-            path = decode(staged[i + 1])
-            patch = git(repo, "diff", "--cached", "--no-ext-diff", "--no-textconv", "--", path)
-            staged_changes.append(Change({b"A": "Added", b"D": "Deleted"}.get(staged[i], "Modified"),
-                                         path, patch.decode("utf-8", "replace")))
-        approved, rejected = classify_changes(repo, staged_changes)
-        if rejected or len(approved) != len(changes):
-            raise SafetyError("File eligibility changed during staging; inspect the index manually.")
-        message = build_commit_message(staged_changes)
-        stat = git(repo, "diff", "--cached", "--stat").decode("utf-8", "replace")
-        print_preview(repo, branch, staged_changes, message, stat)
-        check_repository_state(repo)
-        if git(repo, "rev-parse", "HEAD") != head or index_fingerprint(repo) != staged_fingerprint:
-            raise SafetyError("HEAD/index changed during staging; inspect the index manually.")
-        commit = create_commit(repo, message)
-        write_log(state, f"COMMIT {commit}\n{message}")
-        if args.push or os.environ.get("AUTO_PUSH", "false").lower() == "true":
-            write_log(state, f"PUSH requested for local commit {commit}.")
-            push_changes(repo)
-            write_log(state, f"PUSH succeeded: {commit}")
+@contextmanager
+def log_run(state, info):
+    try:
+        yield
+    except (SafetyError, OSError) as error:
+        info.result = getattr(error, "result", "ERROR")
+        info.detail = str(error)
+        raise
+    finally:
+        write_log(state, info)
+
+
+def run(repo, state, args, info=None):
+    info = info or RunInfo()
+    preview = args.dry_run or args.show_summary
+    info.mode = "dry-run" if args.dry_run else "summary" if args.show_summary else "commit"
+    try:
+        with log_run(state, info):
+            info.branch = get_current_branch(repo) or "(detached)"
+            with nullcontext() if preview else run_lock(state):
+                run_checkpoint(repo, state, args, info)
+    except LockBusy as error:
+        print(f"WARNING: {error}", flush=True)
+
+
+def run_checkpoint(repo, state, args, info):
+    preview = args.dry_run or args.show_summary
+    branch = check_repository_state(repo)
+    head = git(repo, "rev-parse", "HEAD")
+    selected, excluded = classify_changes(repo, get_changed_files(repo))
+    info.files_changed = len(selected)
+    info.files_counted = True
+    for change, reason in excluded:
+        print(f"Skip {change.path!r}: {reason}")
+    cached_before = git(repo, "diff", "--cached", "--no-ext-diff", "--no-textconv", "--binary")
+    if cached_before and not preview:
+        raise SafetyError("Index already has staged changes. Commit or unstage them manually first.",
+                          "BLOCKED_STAGED_CHANGES")
+    if not selected:
+        print("No KLTN changes to commit.")
+        info.result = "NO_CHANGES"
+        return
+    changes = collect_diffs(repo, selected)
+    # Run the requested worktree check and also check existing staged changes.
+    git(repo, "diff", "--check")
+    git(repo, "diff", "--cached", "--check")
+    stat = tracked_diff_stat(repo, changes)
+    message = build_commit_message(changes, info.started_at)
+    info.message = message
+    print_preview(repo, branch, changes, message, stat, info.started_at)
+    if preview:
+        if cached_before:
+            print("NOTE: Existing staged changes will block a normal run.")
+        print("Preview only: no git add, commit or push. Untracked whitespace is checked after staging in a normal run.")
+        info.result = "PREVIEW"
+        return
+    check_repository_state(repo)
+    if git(repo, "rev-parse", "HEAD") != head or git(repo, "diff", "--cached", "--name-only", "-z"):
+        raise SafetyError("HEAD/index changed during analysis; retry when Git is idle.")
+    # Keep the user's files and index intact on failure; never reset/clean.
+    stage_changes(repo, changes)
+    staged_fingerprint = index_fingerprint(repo)
+    staged = git(repo, "diff", "--cached", "--name-status", "--no-renames", "-z").split(b"\0")
+    staged_paths = {decode(staged[i]) for i in range(1, len(staged) - 1, 2)}
+    expected = {c.path for c in changes}
+    if staged_paths != expected:
+        raise SafetyError("Staged paths changed unexpectedly; inspect the index manually.")
+    git(repo, "diff", "--check")
+    git(repo, "diff", "--cached", "--check")
+    staged_changes = []
+    for i in range(0, len(staged) - 1, 2):
+        path = decode(staged[i + 1])
+        patch = git(repo, "diff", "--cached", "--no-ext-diff", "--no-textconv", "--", path)
+        staged_changes.append(Change({b"A": "Added", b"D": "Deleted"}.get(staged[i], "Modified"),
+                                     path, patch.decode("utf-8", "replace")))
+    approved, rejected = classify_changes(repo, staged_changes)
+    if rejected or len(approved) != len(changes):
+        raise SafetyError("File eligibility changed during staging; inspect the index manually.")
+    message = build_commit_message(staged_changes, info.started_at)
+    info.message = message
+    stat = git(repo, "diff", "--cached", "--stat").decode("utf-8", "replace")
+    print_preview(repo, branch, staged_changes, message, stat, info.started_at)
+    check_repository_state(repo)
+    if git(repo, "rev-parse", "HEAD") != head or index_fingerprint(repo) != staged_fingerprint:
+        raise SafetyError("HEAD/index changed during staging; inspect the index manually.")
+    commit = create_commit(repo, message)
+    info.commit_hash = commit
+    info.result = "COMMITTED"
+    if args.push or os.environ.get("AUTO_PUSH", "false").lower() == "true":
+        # Persist the successful checkpoint before attempting optional network I/O.
+        info.detail = "Push requested; local commit retained if push fails."
+        write_log(state, info)
+        push_changes(repo)
+        info.detail = "Push succeeded."
 
 
 def main(argv=None):
@@ -380,17 +442,22 @@ def main(argv=None):
     parser.add_argument("--push", action="store_true", help="Push origin master after a successful new local commit")
     args = parser.parse_args(argv)
     state = None
+    info = RunInfo()
+    run_started = False
     try:
         # Establish external logging before repository validation so failures are logged.
         state = state_directory(Path(__file__).resolve().parents[2])
         repo = get_repo_root()
-        run(repo, state, args)
+        run_started = True
+        run(repo, state, args, info)
         return 0
     except (SafetyError, OSError) as error:
         print(f"ERROR: {error}", file=sys.stderr, flush=True)
-        if state is not None:
+        if state is not None and not run_started:
             try:
-                write_log(state, f"ERROR: {error}")
+                info.result = getattr(error, "result", "ERROR")
+                info.detail = str(error)
+                write_log(state, info)
             except OSError as log_error:
                 print(f"ERROR writing log: {log_error}", file=sys.stderr)
         return 1
