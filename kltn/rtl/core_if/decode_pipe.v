@@ -17,6 +17,7 @@ module  decode_pipe(
   input wire [1:0]  mem_to_reg_in,
   input wire [31:0] opa_mux_in,
   input wire [31:0] opb_mux_in,
+  input wire [31:0] opc_mux_in,
   input wire [31:0] opb_data_in,
   input wire [31:0] pre_address_in,
   input wire [31:0] instruction_in,
@@ -35,6 +36,7 @@ module  decode_pipe(
   output wire [1:0]  mem_to_reg,
   output wire [31:0] opa_mux_out,
   output wire [31:0] opb_mux_out,
+  output wire [31:0] opc_mux_out,
   output wire [31:0] opb_data_out,
   output wire [31:0] pre_address_out,
   output wire [31:0] instruction_out
@@ -47,7 +49,7 @@ module  decode_pipe(
   reg [3:0] alu_con;
   reg [4:0] rs1;
   reg [4:0] rs2;
-  reg [31:0] opa_mux,opb_mux,opb_data,pre_address,instruction;
+  reg [31:0] opa_mux,opb_mux,opc_mux,opb_data,pre_address,instruction;
 
   always @ (posedge clk or negedge rst) begin
     if (!rst) begin
@@ -61,6 +63,7 @@ module  decode_pipe(
       alu_con     <= 0;
       opa_mux     <= 0;
       opb_mux     <= 0;
+      opc_mux     <= 0;
       opb_data    <= 0;
       pre_address <= 0;
       instruction <= 0;
@@ -80,6 +83,7 @@ module  decode_pipe(
       alu_con     <= alu_con;
       opa_mux     <= opa_mux;
       opb_mux     <= opb_mux;
+      opc_mux     <= opc_mux;
       opb_data    <= opb_data;
       pre_address <= pre_address;
       instruction <= instruction;
@@ -102,6 +106,7 @@ module  decode_pipe(
       alu_con <= 0;
       opa_mux <= 0;
       opb_mux <= 0;
+      opc_mux <= 0;
       opb_data <= 0;
       pre_address <= 0;
       rs1 <= 0;
@@ -118,6 +123,7 @@ module  decode_pipe(
       alu_con     <= alu_control_in;
       opa_mux     <= opa_mux_in;
       opb_mux     <= opb_mux_in;
+      opc_mux     <= opc_mux_in;
       opb_data    <= opb_data_in;
       pre_address <= pre_address_in;
       instruction <= instruction_in;
@@ -142,6 +148,7 @@ module  decode_pipe(
   assign alu_control      = alu_con;
   assign opa_mux_out      = opa_mux;
   assign opb_mux_out      = opb_mux;
+  assign opc_mux_out      = opc_mux;
   assign opb_data_out     = opb_data;
   assign instruction_out  = instruction;
   assign pre_address_out  = pre_address;

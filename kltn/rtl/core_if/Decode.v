@@ -20,13 +20,22 @@ module decode (
     output wire fp_load,
     output wire fp_store,
     output wire fp_addsub,
+    output wire fp_mul,
+    output wire fp_divsqrt,
+    output wire fp_fma,
+    output wire fp_cvt_to_int,
+    output wire fp_cvt_to_float,
+    output wire fp_compare,
+    output wire fp_minmax,
     output wire fp_csr_access,
+    output wire fp_use_x1, fp_use_f1, fp_use_f2, fp_use_f3,
     output wire [3:0]  alu_control,
     output wire [1:0]  mem_to_reg,
     output wire [4:0]  rs1 , rs2,
     output wire [31:0] opb_data,
     output wire [31:0] opa_mux_out,
     output wire [31:0] opb_mux_out,
+    output wire [31:0] opc_mux_out,
     output wire matrix_decode
     );
 
@@ -38,14 +47,21 @@ module decode (
     wire [31:0] op_a , op_b;
     wire [31:0] fp_op_a, fp_op_b, int_opa, int_opb;
     wire legacy_reg_write, legacy_fp_reg_write;
-    assign fp_addsub = instruction[6:0] == 7'h53 &&
-                       (instruction[31:25] == 7'h00 || instruction[31:25] == 7'h04);
+    wire fp_write_x, fp_write_f;
+    fp_decode u_fp_decode(
+        .instruction(instruction), .addsub(fp_addsub), .mul(fp_mul), .divsqrt(fp_divsqrt), .fma(fp_fma),
+        .cvt_to_int(fp_cvt_to_int), .cvt_to_float(fp_cvt_to_float),
+        .compare(fp_compare), .misc(), .misc_op(),
+        .minmax(fp_minmax),
+        .use_x1(fp_use_x1), .use_f1(fp_use_f1), .use_f2(fp_use_f2), .use_f3(fp_use_f3),
+        .write_x(fp_write_x), .write_f(fp_write_f)
+    );
     assign fp_csr_access = instruction[6:0] == 7'h73 && instruction[13:12] != 0 &&
                            instruction[31:20] >= 12'h001 && instruction[31:20] <= 12'h003;
-    assign reg_write_en_out = legacy_reg_write || fp_csr_access;
-    assign fp_reg_write_en_out = legacy_fp_reg_write || fp_addsub;
-    assign opa_mux_out = fp_addsub ? fp_op_a : (fp_csr_access ? op_a : int_opa);
-    assign opb_mux_out = fp_addsub ? fp_op_b : int_opb;
+    assign reg_write_en_out = legacy_reg_write || fp_csr_access || fp_write_x;
+    assign fp_reg_write_en_out = legacy_fp_reg_write || fp_write_f;
+    assign opa_mux_out = fp_use_f1 ? fp_op_a : ((fp_csr_access || fp_use_x1) ? op_a : int_opa);
+    assign opb_mux_out = fp_use_f2 ? fp_op_b : int_opb;
     wire [31:0] imm_mux_out;
     wire [31:0] i_immo , s_immo , sb_immo , uj_immo , u_immo;
 
@@ -125,7 +141,7 @@ module decode (
         .data(rd_wb_data),
         .op_a(fp_op_a),
         .op_b(fp_op_b),
-        .op_c()
+        .op_c(opc_mux_out)
     );
 
     assign rs1 = instruction[19:15];

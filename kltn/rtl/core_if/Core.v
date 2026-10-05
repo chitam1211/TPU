@@ -40,6 +40,7 @@ module core (
     wire [31:0] op_b_decode , op_b_execute , op_b_memstage;
     wire [31:0] opa_mux_out_decode , opa_mux_out_execute;
     wire [31:0] opb_mux_out_decode , opb_mux_out_execute;
+    wire [31:0] opc_mux_out_decode , opc_mux_out_execute;
     wire [31:0] alu_res_out_execute , alu_res_out_memstage;
     wire [31:0] alu_res_out_wb;
     wire [31:0] next_sel_address_execute , next_sel_address_memstage;
@@ -51,49 +52,181 @@ module core (
     wire fp_reg_write_decode, fp_reg_write_execute;
     wire fp_reg_write_memstage, fp_reg_write_wb;
     wire fp_load_decode, fp_store_decode, matrix_decode;
-    wire fp_addsub_decode, fp_csr_decode;
+    wire fp_addsub_decode, fp_mul_decode, fp_divsqrt_decode, fp_fma_decode;
+    wire fp_cvt_to_int_decode, fp_cvt_to_float_decode;
+    wire fp_compare_decode, fp_minmax_decode, fp_csr_decode;
+    wire fp_use_x1_decode, fp_use_f1_decode, fp_use_f2_decode, fp_use_f3_decode;
+    reg fetch_pending, discard_fetch;
+    reg decode_valid, execute_valid, memstage_valid, wb_valid;
+    reg mem_request_sent;
+    wire memory_op = memstage_valid && (load_memstage || store_memstage);
+    wire memory_wait = memory_op && !data_mem_valid;
+    wire fp_misc_execute;
+    wire fp_compare_execute;
+    wire fp_minmax_execute;
+    wire [31:0] fp_min_result, fp_max_result;
+    wire [4:0] fp_minmax_flags;
+    wire [31:0] fp_minmax_result = instruction_execute[12] ? fp_max_result : fp_min_result;
+    wire [31:0] fp_compare_result;
+    wire [4:0] fp_compare_flags;
+    wire [2:0] fp_misc_op;
+    wire [31:0] fp_misc_result;
+    fp_decode u_fp_decode_execute(
+        .instruction(instruction_execute), .addsub(), .mul(), .divsqrt(), .fma(),
+        .cvt_to_int(), .cvt_to_float(),
+        .compare(fp_compare_execute),
+        .minmax(fp_minmax_execute),
+        .misc(fp_misc_execute), .misc_op(fp_misc_op),
+        .use_x1(), .use_f1(), .use_f2(), .use_f3(), .write_x(), .write_f()
+    );
+    fp_misc u_fp_misc(
+        .a(opa_mux_out_execute), .b(opb_mux_out_execute),
+        .operation(fp_misc_op), .result(fp_misc_result)
+    );
+    fp32_compare u_fp_compare(
+        .a(opa_mux_out_execute), .b(opb_mux_out_execute),
+        .operation(instruction_execute[14:12]),
+        .result(fp_compare_result), .flags(fp_compare_flags),
+        .min_result(fp_min_result), .max_result(fp_max_result), .minmax_flags(fp_minmax_flags)
+    );
     // Full funct7 is required: other OP-FP operations must not alias ADD/SUB.
     function is_fp_addsub;
         input [31:0] insn;
         begin is_fp_addsub = insn[6:0] == 7'h53 &&
             (insn[31:25] == 7'h00 || insn[31:25] == 7'h04); end
     endfunction
+    function is_fp_mul;
+        input [31:0] insn;
+        begin is_fp_mul = insn[6:0] == 7'h53 && insn[31:25] == 7'h08; end
+    endfunction
+    function is_fp_divsqrt;
+        input [31:0] insn;
+        begin is_fp_divsqrt = insn[6:0] == 7'h53 && (insn[31:25] == 7'h0c ||
+            (insn[31:25] == 7'h2c && insn[24:20] == 0)); end
+    endfunction
+    // R4 fused multiply-add, single precision only (fmt=00).
+    function is_fp_fma;
+        input [31:0] insn;
+        begin is_fp_fma = insn[6:4] == 3'b100 && insn[1:0] == 2'b11 && insn[26:25] == 2'b00; end
+    endfunction
+    function is_fp_convert;
+        input [31:0] insn;
+        begin is_fp_convert = insn[6:0] == 7'h53 &&
+            (insn[31:25] == 7'h60 || insn[31:25] == 7'h68) &&
+            insn[24:21] == 0; end
+    endfunction
+    function is_fp_compare;
+        input [31:0] insn;
+        begin is_fp_compare = insn[6:0] == 7'h53 &&
+            insn[31:25] == 7'h50 && insn[14:12] <= 3'd2; end
+    endfunction
+    function updates_fp_flags;
+        input [31:0] insn;
+        begin updates_fp_flags = is_fp_addsub(insn) || is_fp_mul(insn) ||
+            is_fp_divsqrt(insn) || is_fp_fma(insn) || is_fp_convert(insn) ||
+            is_fp_compare(insn) || is_fp_minmax(insn); end
+    endfunction
+    function is_fp_minmax;
+        input [31:0] insn;
+        begin is_fp_minmax = insn[6:0] == 7'h53 &&
+            insn[31:25] == 7'h14 && insn[14:12] <= 3'd1; end
+    endfunction
     function is_fp_csr;
         input [31:0] insn;
         begin is_fp_csr = insn[6:0] == 7'h73 && insn[13:12] != 0 &&
             insn[31:20] >= 12'h001 && insn[31:20] <= 12'h003; end
     endfunction
-    wire fp_arith_execute = execute_valid && is_fp_addsub(instruction_execute);
+    wire fp_addsub_execute = execute_valid && is_fp_addsub(instruction_execute);
+    wire fp_mul_execute = execute_valid && is_fp_mul(instruction_execute);
+    wire fp_divsqrt_execute = execute_valid && is_fp_divsqrt(instruction_execute);
+    wire fp_fma_execute = execute_valid && is_fp_fma(instruction_execute);
+    wire fp_convert_execute = execute_valid && is_fp_convert(instruction_execute);
+    wire fp_arith_execute = fp_addsub_execute || fp_mul_execute ||
+                            fp_divsqrt_execute || fp_fma_execute || fp_convert_execute;
     wire csr_execute = execute_valid && is_fp_csr(instruction_execute);
     wire csr_memstage = memstage_valid && is_fp_csr(instruction_memstage);
     wire csr_wb = wb_valid && is_fp_csr(instruction_wb);
-    wire older_fp = (execute_valid && is_fp_addsub(instruction_execute)) ||
-                    (memstage_valid && is_fp_addsub(instruction_memstage)) ||
-                    (wb_valid && is_fp_addsub(instruction_wb));
+    wire older_fp = (execute_valid && updates_fp_flags(instruction_execute)) ||
+                    (memstage_valid && updates_fp_flags(instruction_memstage)) ||
+                    (wb_valid && updates_fp_flags(instruction_wb));
     wire older_csr = csr_execute || csr_memstage || csr_wb;
     wire csr_wait = (fp_csr_decode && (older_fp || older_csr)) ||
-                    (fp_addsub_decode && older_csr);
+                    ((fp_addsub_decode || fp_mul_decode || fp_divsqrt_decode || fp_fma_decode || fp_cvt_to_int_decode ||
+                      fp_cvt_to_float_decode || fp_compare_decode || fp_minmax_decode) && older_csr);
     wire [2:0] frm, effective_rm;
-    wire [4:0] fflags, fp_flags;
-    wire [31:0] csr_read_data, fp_result;
+    wire [4:0] fflags, fp_flags, fp_addsub_flags, fp_mul_flags, fp_divsqrt_flags, fp_fma_flags, fp_convert_flags;
+    wire [31:0] csr_read_data, fp_result, fp_addsub_result, fp_mul_result;
+    wire [31:0] fp_divsqrt_result, fp_fma_result, fp_convert_result;
     wire fp_done, fp_busy, fp_illegal_rm;
+    wire fp_addsub_done, fp_addsub_busy, fp_addsub_illegal_rm;
+    wire fp_mul_done, fp_mul_busy, fp_mul_illegal_rm;
+    wire fp_divsqrt_done, fp_divsqrt_busy, fp_divsqrt_illegal_rm;
+    wire fp_fma_done, fp_fma_busy, fp_fma_illegal_rm;
+    wire fp_convert_done, fp_convert_busy, fp_convert_illegal_rm;
     reg fp_issued, fp_complete;
     reg [4:0] fp_flags_memstage, fp_flags_wb;
     reg [31:0] csr_operand_wb;
     wire [31:0] csr_operand_execute = instruction_execute[14] ?
         {27'b0, instruction_execute[19:15]} : opa_mux_out_execute;
     wire fp_start = fp_arith_execute && !fp_issued && !memory_wait;
+    assign fp_done = fp_addsub_done || fp_mul_done || fp_divsqrt_done || fp_fma_done || fp_convert_done;
+    assign fp_busy = fp_addsub_busy || fp_mul_busy || fp_divsqrt_busy || fp_fma_busy || fp_convert_busy;
+    assign fp_result = fp_convert_execute ? fp_convert_result :
+                       fp_divsqrt_execute ? fp_divsqrt_result :
+                       fp_fma_execute ? fp_fma_result :
+                       (fp_mul_execute ? fp_mul_result : fp_addsub_result);
+    assign fp_flags = fp_convert_execute ? fp_convert_flags :
+                      fp_divsqrt_execute ? fp_divsqrt_flags :
+                      fp_fma_execute ? fp_fma_flags :
+                      (fp_mul_execute ? fp_mul_flags : fp_addsub_flags);
+    assign fp_illegal_rm = fp_convert_execute ? fp_convert_illegal_rm :
+                           fp_divsqrt_execute ? fp_divsqrt_illegal_rm :
+                           fp_fma_execute ? fp_fma_illegal_rm :
+                           (fp_mul_execute ? fp_mul_illegal_rm : fp_addsub_illegal_rm);
     wire fp_wait = fp_arith_execute && !(fp_done || fp_complete);
     wire execute_wait = memory_wait || fp_wait;
     wire [31:0] execute_result = fp_arith_execute ? fp_result :
-                                (csr_execute ? csr_read_data : alu_res_out_execute);
+                                (fp_minmax_execute ? fp_minmax_result :
+                                (fp_compare_execute ? fp_compare_result :
+                                (fp_misc_execute ? fp_misc_result :
+                                (csr_execute ? csr_read_data : alu_res_out_execute))));
     assign effective_rm = instruction_execute[14:12] == 3'b111 ?
                           frm : instruction_execute[14:12];
     fp32_addsub u_fp_addsub(
-        .clk(clk), .rst(rst), .start(fp_start), .sub(instruction_execute[27]),
+        .clk(clk), .rst(rst), .start(fp_start && fp_addsub_execute), .sub(instruction_execute[27]),
         .a(opa_mux_out_execute), .b(opb_mux_out_execute), .rm(effective_rm),
-        .busy(fp_busy), .done(fp_done), .result(fp_result), .flags(fp_flags),
-        .illegal_rm(fp_illegal_rm)
+        .busy(fp_addsub_busy), .done(fp_addsub_done), .result(fp_addsub_result), .flags(fp_addsub_flags),
+        .illegal_rm(fp_addsub_illegal_rm)
+    );
+    fp32_mul u_fp_mul(
+        .clk(clk), .rst(rst), .start(fp_start && fp_mul_execute),
+        .a(opa_mux_out_execute), .b(opb_mux_out_execute), .rm(effective_rm),
+        .busy(fp_mul_busy), .done(fp_mul_done), .result(fp_mul_result),
+        .flags(fp_mul_flags), .illegal_rm(fp_mul_illegal_rm)
+    );
+    fp32_divsqrt u_fp_divsqrt(
+        .clk(clk), .rst(rst), .start(fp_start && fp_divsqrt_execute),
+        .is_sqrt(instruction_execute[30]),
+        .a(opa_mux_out_execute), .b(opb_mux_out_execute), .rm(effective_rm),
+        .busy(fp_divsqrt_busy), .done(fp_divsqrt_done), .result(fp_divsqrt_result),
+        .flags(fp_divsqrt_flags), .illegal_rm(fp_divsqrt_illegal_rm)
+    );
+    // Opcode bit 2 negates the addend (FMSUB/FNMADD), bit 3 the product (FNMSUB/FNMADD).
+    fp32_fma u_fp_fma(
+        .clk(clk), .rst(rst), .start(fp_start && fp_fma_execute),
+        .negate_product(instruction_execute[3]), .negate_addend(instruction_execute[2]),
+        .a(opa_mux_out_execute), .b(opb_mux_out_execute), .c(opc_mux_out_execute),
+        .rm(effective_rm),
+        .busy(fp_fma_busy), .done(fp_fma_done), .result(fp_fma_result),
+        .flags(fp_fma_flags), .illegal_rm(fp_fma_illegal_rm)
+    );
+    fp32_convert u_fp_convert(
+        .clk(clk), .rst(rst), .start(fp_start && fp_convert_execute),
+        .to_float(instruction_execute[28]), .unsigned_mode(instruction_execute[20]),
+        .a(opa_mux_out_execute), .rm(effective_rm),
+        .busy(fp_convert_busy), .done(fp_convert_done),
+        .result(fp_convert_result), .flags(fp_convert_flags),
+        .illegal_rm(fp_convert_illegal_rm)
     );
     fp_csr u_fp_csr(
         .clk(clk), .rst(rst), .read_addr(instruction_execute[31:20]),
@@ -101,7 +234,10 @@ module core (
         .write_en(csr_wb && (instruction_wb[13:12] == 1 || instruction_wb[19:15] != 0)),
         .write_addr(instruction_wb[31:20]), .write_op(instruction_wb[13:12]),
         .write_data(csr_operand_wb),
-        .flags_en(wb_valid && fp_reg_write_wb && is_fp_addsub(instruction_wb)),
+        .flags_en(wb_valid && ((fp_reg_write_wb && (is_fp_addsub(instruction_wb) || is_fp_mul(instruction_wb) ||
+                                                    is_fp_divsqrt(instruction_wb) || is_fp_fma(instruction_wb))) ||
+                              is_fp_convert(instruction_wb) ||
+                              is_fp_compare(instruction_wb) || is_fp_minmax(instruction_wb))),
         .flags_in(fp_flags_wb), .frm(frm), .fflags(fflags)
     );
     // Sideband state follows the same EX/MEM and MEM/WB boundaries as results.
@@ -114,7 +250,9 @@ module core (
             if (fp_done) fp_complete <= 1;
             if (!execute_wait) begin fp_issued <= 0; fp_complete <= 0; end
             if (!memory_wait)
-                fp_flags_memstage <= (fp_arith_execute && !fp_wait && !fp_illegal_rm) ? fp_flags : 5'b0;
+                fp_flags_memstage <= (execute_valid && fp_minmax_execute) ? fp_minmax_flags :
+                    (execute_valid && fp_compare_execute) ? fp_compare_flags :
+                    ((fp_arith_execute && !fp_wait && !fp_illegal_rm) ? fp_flags : 5'b0);
             fp_flags_wb <= fp_flags_memstage;
             csr_operand_wb <= op_b_memstage;
         end
@@ -123,12 +261,7 @@ module core (
     // Five pipeline stages, with conservative dependency stalls and one
     // outstanding request per memory port. A request is accepted on a rising
     // edge; valid is its completion response (including store completion).
-    reg fetch_pending, discard_fetch;
-    reg decode_valid, execute_valid, memstage_valid, wb_valid;
-    reg mem_request_sent;
-    reg uses_x_rs1, uses_x_rs2, uses_f_rs1, uses_f_rs2;
-    wire memory_op = memstage_valid && (load_memstage || store_memstage);
-    wire memory_wait = memory_op && !data_mem_valid;
+    reg uses_x_rs1, uses_x_rs2, uses_f_rs1, uses_f_rs2, uses_f_rs3;
     wire redirect = execute_valid && !execute_wait &&
                     (next_sel_execute || jalr_execute || branch_result_execute);
     wire [31:0] redirect_address = jalr_execute ?
@@ -143,6 +276,7 @@ module core (
         uses_x_rs2 = 1'b0;
         uses_f_rs1 = 1'b0;
         uses_f_rs2 = 1'b0;
+        uses_f_rs3 = 1'b0;
         case (instruction_decode[6:0])
             7'b0110011, 7'b0100011, 7'b1100011: begin
                 uses_x_rs1 = 1'b1;
@@ -156,8 +290,14 @@ module core (
                 uses_f_rs2 = fp_store_decode;
             end
             7'h53: begin
-                uses_f_rs1 = fp_addsub_decode;
-                uses_f_rs2 = fp_addsub_decode;
+                uses_x_rs1 = fp_use_x1_decode;
+                uses_f_rs1 = fp_use_f1_decode;
+                uses_f_rs2 = fp_use_f2_decode;
+            end
+            7'h43, 7'h47, 7'h4b, 7'h4f: begin
+                uses_f_rs1 = fp_use_f1_decode;
+                uses_f_rs2 = fp_use_f2_decode;
+                uses_f_rs3 = fp_use_f3_decode;
             end
             7'h73: uses_x_rs1 = fp_csr_decode && !instruction_decode[14];
             default: begin end
@@ -181,10 +321,16 @@ module core (
         (execute_valid && fp_reg_write_execute && rs2_decode == instruction_execute[11:7]) ||
         (memstage_valid && fp_reg_write_memstage && rs2_decode == instruction_memstage[11:7]) ||
         (wb_valid && fp_reg_write_wb && rs2_decode == instruction_wb[11:7]);
+    wire [4:0] rs3_decode = instruction_decode[31:27];
+    wire f_rs3_wait =
+        (execute_valid && fp_reg_write_execute && rs3_decode == instruction_execute[11:7]) ||
+        (memstage_valid && fp_reg_write_memstage && rs3_decode == instruction_memstage[11:7]) ||
+        (wb_valid && fp_reg_write_wb && rs3_decode == instruction_wb[11:7]);
     wire dependency_wait = (uses_x_rs1 && x_rs1_wait) ||
                            (uses_x_rs2 && x_rs2_wait) ||
                            (uses_f_rs1 && f_rs1_wait) ||
-                           (uses_f_rs2 && f_rs2_wait) || csr_wait;
+                           (uses_f_rs2 && f_rs2_wait) ||
+                           (uses_f_rs3 && f_rs3_wait) || csr_wait;
     wire decode_issue = decode_valid && !dependency_wait && !execute_wait && !redirect;
 
     assign instruction_mem_request = rst && !fetch_pending && !decode_valid &&
@@ -289,7 +435,18 @@ module core (
         .fp_load(fp_load_decode),
         .fp_store(fp_store_decode),
         .fp_addsub(fp_addsub_decode),
+        .fp_mul(fp_mul_decode),
+        .fp_divsqrt(fp_divsqrt_decode),
+        .fp_fma(fp_fma_decode),
+        .fp_cvt_to_int(fp_cvt_to_int_decode),
+        .fp_cvt_to_float(fp_cvt_to_float_decode),
+        .fp_compare(fp_compare_decode),
+        .fp_minmax(fp_minmax_decode),
         .fp_csr_access(fp_csr_decode),
+        .fp_use_x1(fp_use_x1_decode),
+        .fp_use_f1(fp_use_f1_decode),
+        .fp_use_f2(fp_use_f2_decode),
+        .fp_use_f3(fp_use_f3_decode),
         .matrix_decode(matrix_decode),
         .mem_to_reg(mem_to_reg_decode),
         .branch_result(branch_result_decode),
@@ -297,7 +454,8 @@ module core (
         .instruction_rd(instruction_wb),
         .alu_control(alu_control_decode),
         .opa_mux_out(opa_mux_out_decode),
-        .opb_mux_out(opb_mux_out_decode)
+        .opb_mux_out(opb_mux_out_decode),
+        .opc_mux_out(opc_mux_out_decode)
     );
 
     //DECODE STAGE PIPELINE
@@ -318,6 +476,7 @@ module core (
         .alu_control_in(alu_control_decode),
         .opa_mux_in(opa_mux_out_decode),
         .opb_mux_in(opb_mux_out_decode),
+        .opc_mux_in(opc_mux_out_decode),
         .pre_address_in(pre_pc_addr_decode),
         .instruction_in(instruction_decode),
         .reg_write_in(reg_write_decode),
@@ -336,6 +495,7 @@ module core (
         .alu_control(alu_control_execute),
         .opa_mux_out(opa_mux_out_execute),
         .opb_mux_out(opb_mux_out_execute),
+        .opc_mux_out(opc_mux_out_execute),
         .pre_address_out(pre_pc_addr_execute),
         .instruction_out(instruction_execute),
         .rs1_out(rs1_execute),
@@ -371,7 +531,7 @@ module core (
         .next_sel_addr(next_sel_address_execute),
         .pre_address_in(pre_pc_addr_execute),
         .instruction_in(instruction_execute),
-        .reg_write_in(reg_write_execute),
+        .reg_write_in(reg_write_execute && (!fp_convert_execute || !fp_illegal_rm)),
         .fp_reg_write_in(fp_reg_write_execute && (!fp_arith_execute || !fp_illegal_rm)),
         .reg_write_out(reg_write_memstage),
         .fp_reg_write_out(fp_reg_write_memstage),

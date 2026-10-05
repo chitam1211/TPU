@@ -44,7 +44,7 @@ module type_decoder (
         jalr = 1'b0; 
         lui = 1'b0; 
         matrix = 1'b0;
-        fp_load_type = 1'b0;
+        fp_load_type  = 1'b0;
         fp_store_type = 1'b0;
         case(opcode)
             7'b0110011:begin 
