@@ -11,15 +11,11 @@ module type_decoder (
     auipc,
     matrix,
     fp_load_type,
-    fp_store_type,
-    valid,
-    load_signal_controller
+    fp_store_type
 );
 
     input wire [6:0]opcode;
-    input wire valid;
-    input wire load_signal_controller; 
-    
+
     output reg r_type;
     output reg i_type; 
     output reg load;
@@ -57,12 +53,7 @@ module type_decoder (
                 store = 1'b1;
             end
             7'b0000011:begin
-                if (valid | load_signal_controller) begin 
-                    load = 1'b0;
-                end
-                else begin
-                    load = 1'b1;
-                end
+                load = 1'b1;
             end
             7'b1100011:begin 
                 branch = 1'b1;
@@ -83,12 +74,7 @@ module type_decoder (
                 matrix = 1'b1;
             end
             7'b0000111: begin
-                if (valid | load_signal_controller) begin
-                    fp_load_type = 1'b0;
-                end
-                else begin
-                    fp_load_type = 1'b1;
-                end
+                fp_load_type = 1'b1;
             end
             7'b0100111: begin
                 fp_store_type = 1'b1;

@@ -3,7 +3,6 @@ module memory_stage (
     input wire rst,
     input wire load,
     input wire store,
-    input wire valid,
     input wire data_valid,
     input wire [31:0] op_b,
     input wire [31:0] alu_out_address,

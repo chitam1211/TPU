@@ -1,10 +1,8 @@
 module decode (
     input wire clk,
     input wire rst,
-    input wire valid,
     input wire reg_write_en_in,
     input wire fp_reg_write_en_in,
-    input wire load_control_signal,
     input wire [31:0] instruction,
     input wire [31:0] pc_address,
     input wire [31:0] rd_wb_data,
@@ -48,11 +46,13 @@ module decode (
     wire [31:0] fp_op_a, fp_op_b, int_opa, int_opb;
     wire legacy_reg_write, legacy_fp_reg_write;
     wire fp_write_x, fp_write_f;
-    fp_decode u_fp_decode(
-        .instruction(instruction), .addsub(fp_addsub), .mul(fp_mul), .divsqrt(fp_divsqrt), .fma(fp_fma),
+    // ID-stage decode of OP-FP/FMA: unit class and register-file usage.
+    fp_decode_id u_fp_decode(
+        .opcode(instruction[6:0]), .funct3(instruction[14:12]),
+        .rs2(instruction[24:20]), .funct7(instruction[31:25]),
+        .addsub(fp_addsub), .mul(fp_mul), .divsqrt(fp_divsqrt), .fma(fp_fma),
         .cvt_to_int(fp_cvt_to_int), .cvt_to_float(fp_cvt_to_float),
-        .compare(fp_compare), .misc(), .misc_op(),
-        .minmax(fp_minmax),
+        .compare(fp_compare), .minmax(fp_minmax),
         .use_x1(fp_use_x1), .use_f1(fp_use_f1), .use_f2(fp_use_f2), .use_f3(fp_use_f3),
         .write_x(fp_write_x), .write_f(fp_write_f)
     );
@@ -71,7 +71,6 @@ module decode (
         .opcode(instruction[6:0]),
         .fun3(instruction[14:12]),
         .fun7(instruction[30]),
-        .valid(valid),
         .reg_write(legacy_reg_write),
         .fp_reg_write(legacy_fp_reg_write),
         .fp_load(fp_load),
@@ -86,7 +85,6 @@ module decode (
         .Store(store),
         .jalr_out(jalr),
         .Branch(branch),
-        .load_control(load_control_signal),
         .alu_control(alu_control),
         .matrix_decode(matrix_decode)
     );

@@ -2,8 +2,6 @@ module controlunit (
     input wire [6:0] opcode,
     input wire [2:0] fun3,
     input wire fun7,
-    input wire valid,
-    input wire load_control,
 
     output wire reg_write,
     output wire fp_reg_write,
@@ -36,11 +34,12 @@ module controlunit (
     wire fp_load_type;
     wire fp_store_type;
 
+    // Matrix custom opcode (0x2B) is recognised here and carried to EX through decode_pipe;
+    // reserved for the matrix extension, see docs/matrix_integration_note.md.
     assign matrix_decode = matrix;
 
     type_decoder u_typedec0 (
         .opcode(opcode),
-        .valid(valid),
         .r_type(r_type),
         .i_type(i_type),
         .load(load),
@@ -52,8 +51,7 @@ module controlunit (
         .auipc(auipc),
         .matrix(matrix),
         .fp_load_type(fp_load_type),
-        .fp_store_type(fp_store_type),
-        .load_signal_controller(load_control)
+        .fp_store_type(fp_store_type)
     );
 
     control_decoder u_controldec0 (
@@ -68,7 +66,6 @@ module controlunit (
         .jalr(jalr),
         .lui(lui),
         .auipc(auipc),
-        .matrix(matrix),
         .fp_load_type(fp_load_type),
         .fp_store_type(fp_store_type),
         .next_sel(next_sel),
@@ -85,8 +82,7 @@ module controlunit (
         .operand_b(operand_b),
         .operand_a(operand_a),
         .imm_sel(imm_sel),
-        .alu_control(alu_control),
-        .load_control(load_control)
+        .alu_control(alu_control)
     );
 
 endmodule

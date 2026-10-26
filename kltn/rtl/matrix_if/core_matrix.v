@@ -189,13 +189,13 @@ module core_matrix (
     // -------------------------------------------------------------------------
     // FP (giu nguyen tu core_if/Core.v)
     // -------------------------------------------------------------------------
-    fp_decode u_fp_decode_execute(
-        .instruction(instruction_execute), .addsub(), .mul(), .divsqrt(), .fma(),
-        .cvt_to_int(), .cvt_to_float(),
-        .compare(fp_compare_execute),
-        .minmax(fp_minmax_execute),
-        .misc(fp_misc_execute), .misc_op(fp_misc_op),
-        .use_x1(), .use_f1(), .use_f2(), .use_f3(), .write_x(), .write_f()
+    // EX-stage decode of the one-cycle FP units (fp_misc, fp32_compare),
+    // from the instruction already carried to EX.
+    fp_decode_ex u_fp_decode_execute(
+        .opcode(instruction_execute[6:0]), .funct3(instruction_execute[14:12]),
+        .rs2(instruction_execute[24:20]), .funct7(instruction_execute[31:25]),
+        .compare(fp_compare_execute), .minmax(fp_minmax_execute),
+        .misc(fp_misc_execute), .misc_op(fp_misc_op)
     );
     fp_misc u_fp_misc(
         .a(opa_mux_out_execute), .b(opb_mux_out_execute),
@@ -555,9 +555,6 @@ module core_matrix (
     decode u_decodestage(
         .clk(clk),
         .rst(rst),
-        // Explicit stage validity replaces the legacy load replay mechanism.
-        .valid(1'b0),
-        .load_control_signal(1'b0),
         .reg_write_en_in(reg_write_wb),
         .fp_reg_write_en_in(fp_reg_write_wb),
         .instruction(instruction_decode),
@@ -697,7 +694,6 @@ module core_matrix (
         .wrap_load_in(load_data_in),
         .mask(mask),
         .data_valid(data_mem_valid),
-        .valid(data_mem_valid),
         .we_re(cpu_data_mem_we_re),
         .request(),
         .store_data_out(cpu_store_data_out),
