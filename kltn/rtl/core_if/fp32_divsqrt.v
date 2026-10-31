@@ -1,11 +1,11 @@
 // IEEE-754 binary32 divide and square root, implemented with integer RTL only.
-// Restoring radix-2 recurrence: one quotient/root bit per cycle, 27 iterations.
+// Restoring radix-2 recurrence: one quotient/root bit per cycle, 26 iterations.
 // Flags are {NV,DZ,OF,UF,NX}; tininess is detected after rounding.
 // Computes a / b, or sqrt(a) when is_sqrt = 1 (b is then ignored).
 // Handshake: start is accepted only in IDLE; busy is high while computing;
 //   done pulses for one cycle together with result/flags. Reset cancels.
 // rm: 0 RNE, 1 RTZ, 2 RDN, 3 RUP, 4 RMM; 5..7 set illegal_rm (no result, no flags).
-// FSM: IDLE -> CLASSIFY -> PREPARE -> ITERATE (x27) -> NORMALIZE -> ROUND -> IDLE;
+// FSM: IDLE -> CLASSIFY -> PREPARE -> ITERATE (x26) -> NORMALIZE -> ROUND -> IDLE;
 //   CLASSIFY returns directly to IDLE for special operands.
 module fp32_divsqrt (
     input wire clk, rst, start, is_sqrt,
@@ -22,14 +22,14 @@ module fp32_divsqrt (
     reg [31:0] aa, bb;                 // operands latched at start
     reg [2:0] mode;                    // rounding mode latched at start
     reg op_sqrt, sign;
-    reg [4:0] count;                   // remaining iterations (26 down to 0)
+    reg [4:0] count;                   // remaining iterations (25 down to 0)
     // 24-bit significand: hidden bit + 23 fraction bits, always in [2^23, 2^24).
     reg [23:0] sig_a, sig_b;
     // Exponents such that value = sig * 2^(exp - 150) (bias 127 + 23 fraction bits).
     reg signed [9:0] exp_a, exp_b, base;
-    reg [26:0] q;                      // quotient/root bits; value = q * 2^base
+    reg [25:0] q;                      // quotient/root bits (>= 24 kept + guard); value = q * 2^base
     reg [31:0] rem;                    // partial remainder
-    reg [53:0] radicand;               // sqrt input sig * 2^28 (or 2^29), 2 bits per step
+    reg [51:0] radicand;               // sqrt input sig * 2^26 (or 2^27), 2 bits per step
     // Operand classes from the encoding (IEEE 754-2019 3.4).
     wire nan_a = (&aa[30:23]) && (|aa[22:0]);
     wire nan_b = (&bb[30:23]) && (|bb[22:0]);
@@ -71,26 +71,26 @@ module fp32_divsqrt (
 
     // Square root needs an even exponent: an odd one doubles the significand.
     wire exp_odd = exp_a[0];
-    // Root exponent: half of (exp - 150), made even; -14 undoes the 2^28 scaling
-    // of the radicand (sqrt(2^28) = 2^14).
+    // Root exponent: half of (exp - 150), made even; -13 undoes the 2^26 scaling
+    // of the radicand (sqrt(2^26) = 2^13).
     integer sqrt_base;
-    always @(*) sqrt_base = (exp_a - 150 - (exp_odd ? 1 : 0)) / 2 - 14;
+    always @(*) sqrt_base = (exp_a - 150 - (exp_odd ? 1 : 0)) / 2 - 13;
 
     // Digit-by-digit square root: bring down the next 2 radicand bits, then
     // compare with the trial value 4*q + 1.
-    wire [31:0] rem_shift = {rem[29:0], radicand[53:52]};
-    wire [31:0] trial = {3'b0, q, 2'b01};
+    wire [31:0] rem_shift = {rem[29:0], radicand[51:50]};
+    wire [31:0] trial = {4'b0, q, 2'b01};
 
     // Result value is q * 2^base, plus a nonzero tail when rem != 0.
     // NORMALIZE (cycle 1): value -> 24 kept bits + guard/sticky, both at the
     // delivered precision and at 24-bit unbounded precision (for tininess).
     integer k, exact_exp, target_exp, shift, shift_u, base_exp;
-    reg [26:0] shifted, shifted_u;
+    reg [25:0] shifted, shifted_u;
     reg guard_bit, sticky_bit, guard_u, sticky_u;
     always @(*) begin
         // k = position of the leading 1 of q (priority encoder).
         k = 0;
-        for (i=0; i<27; i=i+1)
+        for (i=0; i<26; i=i+1)
             if (q[i]) k = i;
         base_exp = base;
         // Unbiased exponent of the exact result.
@@ -106,7 +106,7 @@ module fp32_divsqrt (
         // Guard = first dropped bit; sticky = OR of the rest and of the remainder.
         guard_bit = 0; sticky_bit = |rem;
         guard_u = 0; sticky_u = |rem;
-        for (i=0; i<27; i=i+1) begin
+        for (i=0; i<26; i=i+1) begin
             if (i == shift-1) guard_bit = q[i];
             if (i < shift-1) sticky_bit = sticky_bit | q[i];
             if (i == shift_u-1) guard_u = q[i];
@@ -166,7 +166,7 @@ module fp32_divsqrt (
         end
     end
 
-    // FSM: one state per cycle; ITERATE repeats 27 times.
+    // FSM: one state per cycle; ITERATE repeats 26 times.
     always @(posedge clk or negedge rst) begin
         if (!rst) begin
             state <= IDLE; done <= 0; result <= 0; flags <= 0;
@@ -243,16 +243,16 @@ module fp32_divsqrt (
                 end
                 // PREPARE: initialise the recurrence and the result exponent.
                 PREPARE: begin
-                    q <= 0; count <= 26;
+                    q <= 0; count <= 25;
                     if (op_sqrt) begin
                         rem <= 0;
-                        // 54-bit radicand = sig * 2^28, or 2*sig * 2^28 for an odd exponent.
-                        radicand <= exp_odd ? {1'b0,sig_a,29'b0} : {2'b0,sig_a,28'b0};
+                        // 52-bit radicand = sig * 2^26, or 2*sig * 2^26 for an odd exponent.
+                        radicand <= exp_odd ? {1'b0,sig_a,27'b0} : {2'b0,sig_a,26'b0};
                         base <= sqrt_base;
                     end else begin
                         rem <= {8'b0,sig_a};
-                        // q = sig_a/sig_b * 2^26, so a/b = q * 2^(exp_a - exp_b - 26).
-                        base <= exp_a - exp_b - 26;
+                        // q = sig_a/sig_b * 2^25, so a/b = q * 2^(exp_a - exp_b - 25).
+                        base <= exp_a - exp_b - 25;
                     end
                     state <= ITERATE;
                 end
@@ -262,15 +262,15 @@ module fp32_divsqrt (
                         // Sqrt: subtract the trial value if it fits, root bit = 1.
                         radicand <= radicand << 2;
                         if (rem_shift >= trial) begin
-                            rem <= rem_shift - trial; q <= {q[25:0],1'b1};
+                            rem <= rem_shift - trial; q <= {q[24:0],1'b1};
                         end else begin
-                            rem <= rem_shift; q <= {q[25:0],1'b0};
+                            rem <= rem_shift; q <= {q[24:0],1'b0};
                         end
                     // Divide: subtract the divisor if it fits, quotient bit = 1.
                     end else if (rem >= {8'b0,sig_b}) begin
-                        rem <= (rem - {8'b0,sig_b}) << 1; q <= {q[25:0],1'b1};
+                        rem <= (rem - {8'b0,sig_b}) << 1; q <= {q[24:0],1'b1};
                     end else begin
-                        rem <= rem << 1; q <= {q[25:0],1'b0};
+                        rem <= rem << 1; q <= {q[24:0],1'b0};
                     end
                     if (count == 0) state <= NORMALIZE;
                     else count <= count - 1;
