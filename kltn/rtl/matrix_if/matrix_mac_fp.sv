@@ -1,71 +1,129 @@
 `timescale 1ns/1ps
-// 4x4 DiP FP32 FMA, globally stepped FSM (not an II=1 pipeline).
+// Parameterized DiP FP32 FMA, globally stepped FSM (not an II=1 pipeline).
 // start_matmul must be a one-cycle pulse, already decoded as mfmacc.s.
 // A storage: row=i, beat=k. B storage: row=j, beat=k (B transposed).
 // C storage: row=i, beat=j. All reads combinational, writes on clock edge.
-module matrix_fp_mac (
+// M output rows, N output columns, K pipeline stages are independent.
+// RF address widths follow the compute dimensions (rows: max(M,N), beats: max(N,K)).
+module matrix_fp_mac
+    import matrix_cfg_pkg::*;
+#(
+    parameter int COMPUTE_ROWS = TMMAX,
+    parameter int COMPUTE_COLS = TNMAX,
+    parameter int MAX_K_FP32 = TKMAX_FP32,
+    localparam int LOAD_ROWS = max2(COMPUTE_ROWS, COMPUTE_COLS),
+    localparam int RF_ROW_W  = idx_w(LOAD_ROWS),
+    localparam int RF_BEAT_W = idx_w(max2(COMPUTE_COLS, MAX_K_FP32))
+)(
     input logic clk, resetn,
     input logic start_matmul,
-    input logic [2:0] ms1_reg_id, ms2_reg_id, md_acc_id,
+    input logic [REG_ID_W-1:0] ms1_reg_id, ms2_reg_id, md_acc_id,
     input logic [31:0] out_mtilem, out_mtilen, out_mtilek,
     input logic [2:0] out_xmfrm,
     output logic busy, mac_done, mac_illegal,
     output logic [4:0] mac_fflags,
     output logic mac_reg_we,
-    output logic [2:0] mac_reg_id, mac_reg_row_idx, mac_reg_beat_idx,
+    output logic [REG_ID_W-1:0] mac_reg_id,
+    output logic [RF_ROW_W-1:0] mac_reg_row_idx,
+    output logic [RF_BEAT_W-1:0] mac_reg_beat_idx,
     output logic [31:0] mac_reg_wdata,
-    output logic [2:0] read_id_A, read_row_A, read_beat_A,
+    output logic [REG_ID_W-1:0] read_id_A, read_id_B, read_id_C,
+    output logic [RF_ROW_W-1:0] read_row_A, read_row_B, read_row_C,
+    output logic [RF_BEAT_W-1:0] read_beat_A, read_beat_B, read_beat_C,
     input logic [31:0] read_data_A,
-    output logic [2:0] read_id_B, read_row_B, read_beat_B,
     input logic [31:0] read_data_B,
-    output logic [2:0] read_id_C, read_row_C, read_beat_C,
     input logic [31:0] read_data_C
     );
 
     import fp32_fma_pkg::*;
+    logic is_mfmacc_s;
+    logic illegal_inst;
+
+    // The dispatcher currently supplies only mfmacc.s to this module.
+    // When more operations are supported, pass their decoded selectors here.
+    assign is_mfmacc_s = start_matmul;
+
+    always_comb begin
+        illegal_inst = 1'b1;
+        case (1'b1)
+            is_mfmacc_s: begin
+                illegal_inst =
+                    (out_mtilem > COMPUTE_ROWS) ||
+                    (out_mtilen > COMPUTE_COLS) ||
+                    (out_mtilek > MAX_K_FP32) ||
+                    (out_xmfrm > 3'd4) ||
+                    ms1_reg_id[REG_ID_W-1] || ms2_reg_id[REG_ID_W-1] || !md_acc_id[REG_ID_W-1];
+            end
+            default: illegal_inst = 1'b1;
+        endcase
+    end
+
     typedef enum logic [3:0] {
-        ST_IDLE, ST_INIT_C, ST_READ, ST_FEED, ST_UNPACK, ST_MULTIPLY,
-        ST_ALIGN_ADD, ST_ROUND, ST_WRITE, ST_DONE
+        ST_IDLE, 
+        ST_INIT_C, 
+        ST_READ, 
+        ST_FEED, 
+        ST_UNPACK, 
+        ST_MULTIPLY,
+        ST_ALIGN_ADD, 
+        ST_ROUND, 
+        ST_WRITE, 
+        ST_DONE
     } state_t;
 
-    state_t state;
-    logic [2:0] active_M, active_N, active_K, rm;
-    logic [2:0] id_a, id_b, id_c;
-    logic [1:0] row_idx, col_idx;
-    logic [2:0] epoch; // 0..6: M+3 DiP steps for M<=4.
-    logic [31:0] a_tile[0:3][0:3], pe_acc[0:3][0:3];
-    logic [31:0] weight_pe[0:3][0:3];
-    logic [31:0] a_pipe[0:3][0:3], psum_pipe[0:3][0:3];
-    logic [31:0] operand_a[0:3][0:3], operand_c[0:3][0:3];
-    logic [4:0] epoch_flags;
-    wire [31:0] result_bits[0:3][0:3];
-    wire [4:0] result_flags[0:3][0:3];
+    localparam int EPOCH_W = (COMPUTE_ROWS + MAX_K_FP32 > 2) ?
+                            $clog2(COMPUTE_ROWS + MAX_K_FP32) : 1;
+    // active_* hold 0..COMPUTE_ROWS/COLS/MAX_K_FP32.
+    localparam int M_W = cnt_w(COMPUTE_ROWS);
+    localparam int N_W = cnt_w(COMPUTE_COLS);
+    localparam int K_W = cnt_w(MAX_K_FP32);
+    initial begin
+        if (COMPUTE_ROWS < 1 || COMPUTE_COLS < 1 || MAX_K_FP32 < 1)
+            $fatal(1, "FP MAC dimensions must be at least 1");
+    end
 
-    function automatic logic [1:0] mod4_add(input logic [1:0] x, y);
-        return x + y;
-    endfunction
+    state_t state;
+    logic [M_W-1:0] active_M;
+    logic [N_W-1:0] active_N;
+    logic [K_W-1:0] active_K;
+    logic [2:0] rm;
+    logic [REG_ID_W-1:0] id_a, id_b, id_c;
+    logic [RF_ROW_W-1:0] row_idx;  // A/B/C register row
+    logic [RF_BEAT_W-1:0] col_idx; // A/B: k beat, C: n beat
+    logic [EPOCH_W-1:0] epoch;
+    logic [31:0] a_tile[0:COMPUTE_ROWS-1][0:MAX_K_FP32-1];
+    logic [31:0] pe_acc[0:COMPUTE_ROWS-1][0:COMPUTE_COLS-1];
+    logic [31:0] weight_pe[0:MAX_K_FP32-1][0:COMPUTE_COLS-1];
+    // A rotates across K lanes, independently of the N output columns.
+    logic [31:0] a_pipe[0:MAX_K_FP32-1][0:MAX_K_FP32-1];
+    logic [31:0] psum_pipe[0:MAX_K_FP32-1][0:COMPUTE_COLS-1];
+    logic [31:0] operand_a[0:MAX_K_FP32-1][0:COMPUTE_COLS-1];
+    logic [31:0] operand_c[0:MAX_K_FP32-1][0:COMPUTE_COLS-1];
+    logic [4:0] epoch_flags;
+    wire [31:0] result_bits[0:MAX_K_FP32-1][0:COMPUTE_COLS-1];
+    wire [4:0] result_flags[0:MAX_K_FP32-1][0:COMPUTE_COLS-1];
 
     assign busy = (state != ST_IDLE);
     assign read_id_A = id_a;
     assign read_id_B = id_b;
     assign read_id_C = id_c;
-    assign read_row_A = {1'b0,row_idx};
-    assign read_beat_A = {1'b0,col_idx};
-    assign read_row_B = {1'b0,col_idx};
-    assign read_beat_B = {1'b0,row_idx};
-    assign read_row_C = {1'b0,row_idx};
-    assign read_beat_C = {1'b0,col_idx};
+    assign read_row_A = row_idx;
+    assign read_beat_A = col_idx;
+    assign read_row_B = row_idx;
+    assign read_beat_B = col_idx;
+    assign read_row_C = row_idx;
+    assign read_beat_C = col_idx;
     // Combinational write controls: the last write commits before ST_DONE.
     assign mac_reg_we = resetn && (state == ST_WRITE);
     assign mac_reg_id = id_c;
-    assign mac_reg_row_idx = {1'b0,row_idx};
-    assign mac_reg_beat_idx = {1'b0,col_idx};
+    assign mac_reg_row_idx = row_idx;
+    assign mac_reg_beat_idx = col_idx;
     assign mac_reg_wdata = pe_acc[row_idx][col_idx];
 
     generate
-        for (genvar pr = 0; pr < 4; pr++) begin: ROW
-            for (genvar c = 0; c < 4; c++) begin: COL
-                localparam int K_LOCAL = (pr+c)%4;
+        for (genvar pr = 0; pr < MAX_K_FP32; pr++) begin: ROW
+            for (genvar c = 0; c < COMPUTE_COLS; c++) begin: COL
+                localparam int K_LOCAL = (pr+c)%MAX_K_FP32;
                 unpack_t ua, ub, uc;
                 special_t special;
                 sum_t sum;
@@ -104,8 +162,8 @@ module matrix_fp_mac (
 
     always_comb begin
         epoch_flags = 0;
-        for (int pr = 0; pr < 4; pr++) begin
-            for (int c = 0; c < 4; c++) begin
+        for (int pr = 0; pr < MAX_K_FP32; pr++) begin
+            for (int c = 0; c < COMPUTE_COLS; c++) begin
                 epoch_flags = epoch_flags | result_flags[pr][c];
             end
         end
@@ -118,11 +176,15 @@ module matrix_fp_mac (
             id_a <= 0; id_b <= 0; id_c <= 0;
             row_idx <= 0; col_idx <= 0; epoch <= 0;
             mac_done <= 0; mac_illegal <= 0; mac_fflags <= 0;
-            for (int r = 0; r < 4; r++) begin
-                for (int c = 0; c < 4; c++) begin
-                    a_tile[r][c] <= 0; pe_acc[r][c] <= 0; weight_pe[r][c] <= 0;
-                    a_pipe[r][c] <= 0; psum_pipe[r][c] <= 0;
-                    operand_a[r][c] <= 0; operand_c[r][c] <= 0;
+            for (int r = 0; r < COMPUTE_ROWS; r++) begin
+                for (int k = 0; k < MAX_K_FP32; k++) a_tile[r][k] <= 0;
+                for (int c = 0; c < COMPUTE_COLS; c++) pe_acc[r][c] <= 0;
+            end
+            for (int pr = 0; pr < MAX_K_FP32; pr++) begin
+                for (int k = 0; k < MAX_K_FP32; k++) a_pipe[pr][k] <= 0;
+                for (int c = 0; c < COMPUTE_COLS; c++) begin
+                    weight_pe[pr][c] <= 0; psum_pipe[pr][c] <= 0;
+                    operand_a[pr][c] <= 0; operand_c[pr][c] <= 0;
                 end
             end
         end 
@@ -132,12 +194,11 @@ module matrix_fp_mac (
                 ST_IDLE: begin
                     if (start_matmul) begin
                         id_a <= ms1_reg_id; id_b <= ms2_reg_id; id_c <= md_acc_id;
-                        active_M <= out_mtilem[2:0]; active_N <= out_mtilen[2:0];
-                        active_K <= out_mtilek[2:0]; rm <= out_xmfrm;
+                        active_M <= out_mtilem[M_W-1:0]; active_N <= out_mtilen[N_W-1:0];
+                        active_K <= out_mtilek[K_W-1:0]; rm <= out_xmfrm;
                         row_idx <= 0; col_idx <= 0; epoch <= 0;
                         mac_fflags <= 0; mac_illegal <= 0;
-                        if ((out_mtilem > 4) || (out_mtilen > 4) || (out_mtilek > 4) ||
-                            (out_xmfrm > 4) || ms1_reg_id[2] || ms2_reg_id[2] || !md_acc_id[2]) begin
+                        if (illegal_inst) begin
                             mac_illegal <= 1;
                             state <= ST_DONE;
                         end 
@@ -152,36 +213,40 @@ module matrix_fp_mac (
                 
                 ST_INIT_C: begin
                     pe_acc[row_idx][col_idx] <= read_data_C;
-                    if ({1'b0,col_idx}+3'd1 == active_N) begin
+                    if (int'(col_idx)+1 == active_N) begin
                         col_idx <= 0;
-                        if ({1'b0,row_idx}+3'd1 == active_M) begin
+                        if (int'(row_idx)+1 == active_M) begin
                             row_idx <= 0;
                             state <= ST_READ;
                         end 
-                        else row_idx <= row_idx + 2'd1;
+                        else row_idx <= row_idx + 1'b1;
                     end 
-                    else col_idx <= col_idx + 2'd1;
+                    else col_idx <= col_idx + 1'b1;
                 end
                 
                 ST_READ: begin
-                    // 16 cycles: read A[i][k] and B[k][j] concurrently through two ports.
-                    a_tile[row_idx][col_idx] <= read_data_A;
-                    weight_pe[(row_idx-col_idx)&2'b11][col_idx] <= read_data_B;
-                    col_idx <= col_idx + 2'd1;
-                    if (col_idx == 3) begin
-                        row_idx <= row_idx + 2'd1;
-                        if (row_idx == 3) state <= ST_FEED;
-                    end
+                    // Scan max(M,N)*K positions; each port loads its own tile.
+                    if (row_idx < COMPUTE_ROWS)
+                        a_tile[row_idx][col_idx] <= read_data_A;
+                    if (row_idx < COMPUTE_COLS)
+                        weight_pe[(int'(col_idx)+MAX_K_FP32-(int'(row_idx)%MAX_K_FP32))%MAX_K_FP32][row_idx] <= read_data_B;
+                    if (col_idx == MAX_K_FP32-1) begin
+                        col_idx <= 0;
+                        if (row_idx == LOAD_ROWS-1) begin
+                            row_idx <= 0;
+                            state <= ST_FEED;
+                        end else row_idx <= row_idx + 1'b1;
+                    end else col_idx <= col_idx + 1'b1;
                 end
                 
                 ST_FEED: begin
-                    for (int c = 0; c < 4; c++) begin
-                        operand_a[0][c] <= (epoch < active_M) ? a_tile[epoch[1:0]][c] : 32'b0;
-                        operand_c[0][c] <= (epoch < active_M) ? pe_acc[epoch[1:0]][c] : 32'b0;
+                    for (int c = 0; c < COMPUTE_COLS; c++) begin
+                        operand_a[0][c] <= (epoch < active_M) ? a_tile[epoch][c%MAX_K_FP32] : 32'b0;
+                        operand_c[0][c] <= (epoch < active_M) ? pe_acc[epoch][c] : 32'b0;
                     end
-                    for (int pr = 1; pr < 4; pr++) begin
-                        for (int c = 0; c < 4; c++) begin
-                            operand_a[pr][c] <= a_pipe[pr-1][mod4_add(c[1:0],2'd1)];
+                    for (int pr = 1; pr < MAX_K_FP32; pr++) begin
+                        for (int c = 0; c < COMPUTE_COLS; c++) begin
+                            operand_a[pr][c] <= a_pipe[pr-1][(c+1)%MAX_K_FP32];
                             operand_c[pr][c] <= psum_pipe[pr-1][c];
                         end
                     end
@@ -196,34 +261,38 @@ module matrix_fp_mac (
                 
                 ST_ROUND: begin
                     mac_fflags <= mac_fflags | epoch_flags;
-                    for (int pr = 0; pr < 4; pr++) begin
-                        for (int c = 0; c < 4; c++) begin
-                            a_pipe[pr][c] <= operand_a[pr][c];
+                    for (int pr = 0; pr < MAX_K_FP32; pr++) begin
+                        for (int c = 0; c < COMPUTE_COLS; c++) begin
                             psum_pipe[pr][c] <= result_bits[pr][c];
                         end
                     end
-                    if (epoch >= 3) begin
-                        for (int c = 0; c < 4; c++) begin
-                            if (c < int'(active_N)) pe_acc[epoch-3][c] <= result_bits[3][c];
+                    for (int k = 0; k < MAX_K_FP32; k++) begin
+                        a_pipe[0][k] <= (epoch < active_M) ? a_tile[epoch][k] : 32'b0;
+                        for (int pr = 1; pr < MAX_K_FP32; pr++)
+                            a_pipe[pr][k] <= a_pipe[pr-1][(k+1)%MAX_K_FP32];
+                    end
+                    if (epoch >= MAX_K_FP32-1) begin
+                        for (int c = 0; c < COMPUTE_COLS; c++) begin
+                            if (c < int'(active_N)) pe_acc[epoch-(MAX_K_FP32-1)][c] <= result_bits[MAX_K_FP32-1][c];
                         end
                     end
-                    if (epoch == active_M+3'd2) begin
+                    if (int'(epoch) == int'(active_M)+MAX_K_FP32-2) begin
                         row_idx <= 0; col_idx <= 0;
                         state <= ST_WRITE;
                     end 
                     else begin
-                        epoch <= epoch + 3'd1;
+                        epoch <= epoch + 1'b1;
                         state <= ST_FEED;
                     end
                 end
                 
                 ST_WRITE: begin
-                    if ({1'b0,col_idx}+3'd1 == active_N) begin
+                    if (int'(col_idx)+1 == active_N) begin
                         col_idx <= 0;
-                        if ({1'b0,row_idx}+3'd1 == active_M) state <= ST_DONE;
-                        else row_idx <= row_idx + 2'd1;
+                        if (int'(row_idx)+1 == active_M) state <= ST_DONE;
+                        else row_idx <= row_idx + 1'b1;
                     end 
-                    else col_idx <= col_idx + 2'd1;
+                    else col_idx <= col_idx + 1'b1;
                 end
 
                 ST_DONE: begin
