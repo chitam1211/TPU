@@ -1,0 +1,11 @@
+name: rv32if-core
+
+compiler_exe: /home/chitam/tools/riscv-gcc15/bin/riscv32-unknown-elf-gcc
+objdump_exe: /home/chitam/tools/riscv-gcc15/bin/riscv32-unknown-elf-objdump
+ref_model_exe: /home/chitam/tools/sail-riscv-0.14.1/bin/sail_riscv_sim
+
+udb_config: rv32if_core.yaml
+linker_script: link.ld
+dut_include_dir: .
+
+include_priv_tests: false
