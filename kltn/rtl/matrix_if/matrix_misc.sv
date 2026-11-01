@@ -1,8 +1,12 @@
 `timescale 1ns / 1ps
 
-module matrix_misc #(
-    parameter int MATRIX_DIM = 4,
-    parameter int BEATS_PER_ROW = 4
+module matrix_misc
+    import matrix_cfg_pkg::*;
+#(
+    parameter int MATRIX_DIM = ROWNUM,
+    parameter int BEATS_PER_ROW = TR_BEATS,
+    localparam int RF_ROW_W  = idx_w(MATRIX_DIM),
+    localparam int RF_BEAT_W = idx_w(BEATS_PER_ROW)
 )(
     input  logic        clk,
     input  logic        resetn,
@@ -15,17 +19,17 @@ module matrix_misc #(
     output logic        misc_done,
 
     // Regfile write port
-    output logic        misc_reg_we,
-    output logic [2:0]  misc_reg_id,
-    output logic [2:0]  misc_reg_row_idx,
-    output logic [2:0]  misc_reg_beat_idx,
-    output logic [31:0] misc_reg_wdata,
+    output logic                 misc_reg_we,
+    output logic [REG_ID_W-1:0]  misc_reg_id,
+    output logic [RF_ROW_W-1:0]  misc_reg_row_idx,
+    output logic [RF_BEAT_W-1:0] misc_reg_beat_idx,
+    output logic [31:0]          misc_reg_wdata,
 
     // Regfile read port
-    output logic [2:0]  read_id_A,
-    output logic [2:0]  read_row_A,
-    output logic [2:0]  read_beat_A,
-    input  logic [31:0] read_data_A,
+    output logic [REG_ID_W-1:0]  read_id_A,
+    output logic [RF_ROW_W-1:0]  read_row_A,
+    output logic [RF_BEAT_W-1:0] read_beat_A,
+    input  logic [31:0]          read_data_A,
 
     // GPR writeback (mmovw.x.m)
     output logic        misc_gpr_we,
@@ -42,17 +46,20 @@ module matrix_misc #(
 
     fsm_state_t state;
 
+    // mmovw addresses one 32-bit element of the tile by a linear index.
+    localparam int ELEM_W = idx_w(MATRIX_DIM * BEATS_PER_ROW);
+
     // Latched decode fields
     logic [2:0] ctrl_imm3;
-    logic [2:0] ms1_id;
-    logic [2:0] ms2_id;
-    logic [2:0] md_id;
+    logic [REG_ID_W-1:0] ms1_id;
+    logic [REG_ID_W-1:0] ms2_id;
+    logic [REG_ID_W-1:0] md_id;
     logic [31:0] rs1_val;
     logic [31:0] rs2_val;
 
     // Loop counters
-    logic [2:0] row_cnt;
-    logic [2:0] beat_cnt;
+    logic [RF_ROW_W-1:0]  row_cnt;
+    logic [RF_BEAT_W-1:0] beat_cnt;
 
     // Operation flags (latched)
     logic op_mzero;
@@ -79,21 +86,22 @@ module matrix_misc #(
     logic op_mcslideup_w_insn;
 
     // Helpers
-    logic [2:0] row_idx_single;
-    logic [2:0] beat_idx_single;
-    logic [2:0] src_row_idx;
-    logic [2:0] src_beat_idx;
+    logic [RF_ROW_W-1:0]  row_idx_single;
+    logic [RF_BEAT_W-1:0] beat_idx_single;
+    logic [RF_ROW_W-1:0]  src_row_idx;
+    logic [RF_BEAT_W-1:0] src_beat_idx;
+    logic [RF_ROW_W-1:0]  row_shift;
+    logic [RF_BEAT_W-1:0] beat_shift;
     logic       row_slide_oob;
     logic       beat_slide_oob;
     logic [31:0] slide_snapshot [0:MATRIX_DIM-1][0:BEATS_PER_ROW-1];
 
     function automatic logic same_reg_type(
-        input logic [2:0] reg_a,
-        input logic [2:0] reg_b
+        input logic [REG_ID_W-1:0] reg_a,
+        input logic [REG_ID_W-1:0] reg_b
     );
         begin
-            same_reg_type = ((reg_a < 3'd4) && (reg_b < 3'd4)) ||
-                            ((reg_a >= 3'd4) && (reg_b >= 3'd4));
+            same_reg_type = (reg_a[REG_ID_W-1] == reg_b[REG_ID_W-1]); // tile vs acc bank
         end
     endfunction
 
@@ -122,8 +130,8 @@ module matrix_misc #(
     end
 
     always_comb begin
-        row_idx_single  = rs1_val[3:0] / BEATS_PER_ROW;
-        beat_idx_single = rs1_val[3:0] % BEATS_PER_ROW;
+        row_idx_single  = RF_ROW_W'(rs1_val[ELEM_W-1:0] / BEATS_PER_ROW);
+        beat_idx_single = RF_BEAT_W'(rs1_val[ELEM_W-1:0] % BEATS_PER_ROW);
     end
 
     always_comb begin
@@ -132,27 +140,32 @@ module matrix_misc #(
         row_slide_oob = 1'b0;
         beat_slide_oob = 1'b0;
 
+        // Proposal 5.4.5: only log2(ROWNUM) bits of imm3 are used for row slides
+        // and log2(TRLEN/EEW) bits for column slides.
+        row_shift  = RF_ROW_W'(ctrl_imm3) & RF_ROW_W'(MATRIX_DIM - 1);
+        beat_shift = RF_BEAT_W'(ctrl_imm3) & RF_BEAT_W'(BEATS_PER_ROW - 1);
+
         if (op_mrslidedown) begin
-            if ((row_cnt + ctrl_imm3) < MATRIX_DIM) begin
-                src_row_idx = row_cnt + ctrl_imm3;
+            if ((row_cnt + row_shift) < MATRIX_DIM) begin
+                src_row_idx = row_cnt + row_shift;
             end else begin
                 row_slide_oob = 1'b1;
             end
         end else if (op_mrslideup) begin
-            if (row_cnt >= ctrl_imm3) begin
-                src_row_idx = row_cnt - ctrl_imm3;
+            if (row_cnt >= row_shift) begin
+                src_row_idx = row_cnt - row_shift;
             end else begin
                 row_slide_oob = 1'b1;
             end
         end else if (op_mcslidedown_w) begin
-            if ((beat_cnt + ctrl_imm3) < BEATS_PER_ROW) begin
-                src_beat_idx = beat_cnt + ctrl_imm3;
+            if ((beat_cnt + beat_shift) < BEATS_PER_ROW) begin
+                src_beat_idx = beat_cnt + beat_shift;
             end else begin
                 beat_slide_oob = 1'b1;
             end
         end else if (op_mcslideup_w) begin
-            if (beat_cnt >= ctrl_imm3) begin
-                src_beat_idx = beat_cnt - ctrl_imm3;
+            if (beat_cnt >= beat_shift) begin
+                src_beat_idx = beat_cnt - beat_shift;
             end else begin
                 beat_slide_oob = 1'b1;
             end
@@ -258,10 +271,10 @@ module matrix_misc #(
                             row_cnt <= '0;
                             state   <= ST_LOOP;
                         end else begin
-                            row_cnt <= row_cnt + 3'd1;
+                            row_cnt <= row_cnt + 1'b1;
                         end
                     end else begin
-                        beat_cnt <= beat_cnt + 3'd1;
+                        beat_cnt <= beat_cnt + 1'b1;
                     end
                 end
 
@@ -316,10 +329,10 @@ module matrix_misc #(
                         if (row_cnt == MATRIX_DIM - 1) begin
                             state <= ST_DONE;
                         end else begin
-                            row_cnt <= row_cnt + 3'd1;
+                            row_cnt <= row_cnt + 1'b1;
                         end
                     end else begin
-                        beat_cnt <= beat_cnt + 3'd1;
+                        beat_cnt <= beat_cnt + 1'b1;
                     end
                 end
 
