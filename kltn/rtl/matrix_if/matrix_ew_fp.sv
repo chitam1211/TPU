@@ -19,9 +19,13 @@
 // every rounding mode (incl. RDN). Rounding mode = xmfrm, flags = NV DZ OF UF NX.
 // max/min bypass the FMA pipeline (RISC-V F semantics: one NaN -> the other operand,
 // both NaN -> canonical NaN, -0 < +0, sNaN raises NV).
-module matrix_ew_fp #(
-    parameter int MATRIX_DIM = 4,
-    parameter int BEATS_PER_ROW = 4
+module matrix_ew_fp
+    import matrix_cfg_pkg::*;
+#(
+    parameter int MATRIX_DIM = ROWNUM,
+    parameter int BEATS_PER_ROW = TR_BEATS,
+    localparam int RF_ROW_W  = idx_w(MATRIX_DIM),
+    localparam int RF_BEAT_W = idx_w(BEATS_PER_ROW)
 )(
     input  logic        clk,
     input  logic        resetn,
@@ -37,22 +41,22 @@ module matrix_ew_fp #(
     output logic [4:0]  fp_ew_fflags,
 
     // Regfile write port
-    output logic        fp_ew_reg_we,
-    output logic [2:0]  fp_ew_reg_id,
-    output logic [2:0]  fp_ew_reg_row_idx,
-    output logic [2:0]  fp_ew_reg_beat_idx,
-    output logic [31:0] fp_ew_reg_wdata,
+    output logic                 fp_ew_reg_we,
+    output logic [REG_ID_W-1:0]  fp_ew_reg_id,
+    output logic [RF_ROW_W-1:0]  fp_ew_reg_row_idx,
+    output logic [RF_BEAT_W-1:0] fp_ew_reg_beat_idx,
+    output logic [31:0]          fp_ew_reg_wdata,
 
     // Regfile read ports (combinational read, same as matrix_ew)
-    output logic [2:0]  read_id_A,
-    output logic [2:0]  read_row_A,
-    output logic [2:0]  read_beat_A,
-    input  logic [31:0] read_data_A,
+    output logic [REG_ID_W-1:0]  read_id_A,
+    output logic [RF_ROW_W-1:0]  read_row_A,
+    output logic [RF_BEAT_W-1:0] read_beat_A,
+    input  logic [31:0]          read_data_A,
 
-    output logic [2:0]  read_id_B,
-    output logic [2:0]  read_row_B,
-    output logic [2:0]  read_beat_B,
-    input  logic [31:0] read_data_B
+    output logic [REG_ID_W-1:0]  read_id_B,
+    output logic [RF_ROW_W-1:0]  read_row_B,
+    output logic [RF_BEAT_W-1:0] read_beat_B,
+    input  logic [31:0]          read_data_B
 );
 
     import fp32_fma_pkg::*;
@@ -77,17 +81,20 @@ module matrix_ew_fp #(
     localparam logic [3:0]  FUNC_FMIN = 4'b0100;
     localparam logic [31:0] FP32_ONE  = 32'h3F80_0000;
 
-    localparam logic [2:0] MATRIX_DIM_L    = MATRIX_DIM;
-    localparam logic [2:0] BEATS_PER_ROW_L = BEATS_PER_ROW;
+    // active_M/active_N hold 0..MATRIX_DIM / 0..BEATS_PER_ROW.
+    localparam int M_W = cnt_w(MATRIX_DIM);
+    localparam int N_W = cnt_w(BEATS_PER_ROW);
 
     // Latched decode/config fields
     logic [3:0] func4;
-    logic [2:0] ms1_id, ms2_id, md_id;
-    logic [2:0] active_M, active_N;
+    logic [REG_ID_W-1:0] ms1_id, ms2_id, md_id;
+    logic [M_W-1:0] active_M;
+    logic [N_W-1:0] active_N;
     logic [2:0] rm;
 
     // Loop counters
-    logic [2:0] row_cnt, col_cnt;
+    logic [RF_ROW_W-1:0]  row_cnt;
+    logic [RF_BEAT_W-1:0] col_cnt;
 
     // FMA operand registers (raw FP32 words, already muxed per instruction).
     // For max/min: fma_a_q = ms1 (y), fma_c_q = ms2 (x).
@@ -107,7 +114,8 @@ module matrix_ew_fp #(
     logic [31:0] fma_bits_q, mm_bits_q;
     logic [4:0]  fma_flags_q, mm_flags_q;
 
-    logic [2:0] cfg_M, cfg_N;
+    logic [M_W-1:0] cfg_M;
+    logic [N_W-1:0] cfg_N;
     logic       is_minmax_insn, is_minmax, insn_legal;
 
     // -------------------------------------------------------------------------
@@ -154,8 +162,10 @@ module matrix_ew_fp #(
     // Combinational decode / datapath
     // -------------------------------------------------------------------------
     always_comb begin
-        cfg_M = (out_mtilem > {29'b0, MATRIX_DIM_L})    ? MATRIX_DIM_L    : out_mtilem[2:0];
-        cfg_N = (out_mtilen > {29'b0, BEATS_PER_ROW_L}) ? BEATS_PER_ROW_L : out_mtilen[2:0];
+        // Proposal 5.5.2: a tile above mtilem <= ALEN/ARLEN, mtilen <= ARLEN/32 is
+        // illegal (no clamp); see insn_legal below.
+        cfg_M = out_mtilem[M_W-1:0];
+        cfg_N = out_mtilen[N_W-1:0];
 
         is_minmax_insn = (matrix_insn[31:28] == FUNC_FMAX) || (matrix_insn[31:28] == FUNC_FMIN);
         insn_legal = (matrix_insn[31:28] <= FUNC_FMIN) &&
@@ -163,7 +173,9 @@ module matrix_ew_fp #(
                      (matrix_insn[25:23] == 3'b111)    &&  // .mm only
                      (matrix_insn[19:18] == 2'b10)     &&  // .s source
                      (matrix_insn[11:10] == 2'b10)     &&  // .s dest
-                     (is_minmax_insn || (out_xmfrm <= 3'd4));
+                     (is_minmax_insn || (out_xmfrm <= 3'd4)) &&
+                     (out_mtilem <= MATRIX_DIM) &&
+                     (out_mtilen <= BEATS_PER_ROW);
 
         is_minmax = (func4 == FUNC_FMAX) || (func4 == FUNC_FMIN);
     end
@@ -255,7 +267,7 @@ module matrix_ew_fp #(
                         if (!insn_legal) begin
                             fp_ew_illegal <= 1'b1;
                             state <= ST_DONE;
-                        end else if (cfg_M == 3'd0 || cfg_N == 3'd0) begin
+                        end else if (cfg_M == '0 || cfg_N == '0) begin
                             state <= ST_DONE; // No writes; md and flags unchanged.
                         end else begin
                             state <= ST_READ;
@@ -307,16 +319,16 @@ module matrix_ew_fp #(
                     fp_ew_reg_wdata    <= is_minmax ? mm_bits_q : fma_bits_q;
                     fp_ew_fflags       <= fp_ew_fflags | (is_minmax ? mm_flags_q : fma_flags_q);
 
-                    if (col_cnt == active_N - 3'd1) begin
+                    if (col_cnt == active_N - 1'b1) begin
                         col_cnt <= '0;
-                        if (row_cnt == active_M - 3'd1) begin
+                        if (row_cnt == active_M - 1'b1) begin
                             state <= ST_DONE;
                         end else begin
-                            row_cnt <= row_cnt + 3'd1;
+                            row_cnt <= row_cnt + 1'b1;
                             state   <= ST_READ;
                         end
                     end else begin
-                        col_cnt <= col_cnt + 3'd1;
+                        col_cnt <= col_cnt + 1'b1;
                         state   <= ST_READ;
                     end
                 end
