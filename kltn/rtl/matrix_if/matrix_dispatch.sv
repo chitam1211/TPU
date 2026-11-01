@@ -1,7 +1,9 @@
 `timescale 1ns / 1ps
 
-module matrix_dispatch #(
-    parameter int MATRIX_DIM = 4,
+module matrix_dispatch
+    import matrix_cfg_pkg::*;
+#(
+    parameter int MATRIX_DIM = ROWNUM,  // shape checks live in each unit (illegal flag)
     parameter bit ENABLE_LS = 1'b0
 )(
     input  logic        clk,
@@ -30,10 +32,10 @@ module matrix_dispatch #(
     output logic        start_ew,
     output logic        start_fp_ew,
 
-    output logic [2:0]  ms1_reg_id,
-    output logic [2:0]  ms2_reg_id,
-    output logic [2:0]  md_tr_id,
-    output logic [2:0]  md_acc_id,
+    output logic [REG_ID_W-1:0] ms1_reg_id,
+    output logic [REG_ID_W-1:0] ms2_reg_id,
+    output logic [REG_ID_W-1:0] md_tr_id,
+    output logic [REG_ID_W-1:0] md_acc_id,
 
     input  logic        core_done,
     input  logic [31:0] csr_rdata,
@@ -187,7 +189,7 @@ module matrix_dispatch #(
 
         is_ew_int = is_group_ew && (uop == 2'b01) && (s_size == 2'b10) && (d_size == 2'b10);
         is_ew_mm  = is_ew_int && (ctrl_imm3 == 3'b111);
-        is_ew_mv  = is_ew_int && (ctrl_imm3 != 3'b111) && (ctrl_imm3 < MATRIX_DIM);
+        is_ew_mv  = is_ew_int && (ctrl_imm3 != 3'b111); // imm3 wraps to log2(ROWNUM) bits in matrix_ew
         is_ew_madd_w_mm  = is_ew_mm && (func4 == 4'b0000);
         is_ew_madd_w_mv  = is_ew_mv && (func4 == 4'b0000);
         is_ew_msub_w_mm  = is_ew_mm && (func4 == 4'b0001);
