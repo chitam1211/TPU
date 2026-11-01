@@ -498,7 +498,7 @@ def case_pipeline(rng):
     # rejected encodings: no state change, x29 keeps its value
     p.li(29, 0x1234)
     p.mx(mfew(5, 6, 4, 5), "reserved: FP element-wise func4=5")
-    p.mx(mew(0, 6, 4, 5, 5), "reserved: integer .mv with row 5")
+    p.mx(mew(11, 6, 4, 5), "reserved: integer element-wise func4=11")
     p.mx(mmac(4, 4, 0, 1), "reserved: matmul size_sup=4")
     p.mx((2 << 28) | (3 << 26) | (1 << 25) | (0b10 << 23) | (6 << 15) | (29 << 7) | OPC_MX,
          "reserved: mmovw.x.m with bit 25 set, rd=x29")
