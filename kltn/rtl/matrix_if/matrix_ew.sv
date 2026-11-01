@@ -1,8 +1,12 @@
 `timescale 1ns / 1ps
 
-module matrix_ew #(
-    parameter int MATRIX_DIM = 4,
-    parameter int BEATS_PER_ROW = 4
+module matrix_ew
+    import matrix_cfg_pkg::*;
+#(
+    parameter int MATRIX_DIM = ROWNUM,
+    parameter int BEATS_PER_ROW = TR_BEATS,
+    localparam int RF_ROW_W  = idx_w(MATRIX_DIM),
+    localparam int RF_BEAT_W = idx_w(BEATS_PER_ROW)
 )(
     input  logic        clk,
     input  logic        resetn,
@@ -14,24 +18,25 @@ module matrix_ew #(
     input  logic [31:0] out_mtilen,
 
     output logic        ew_done,
+    output logic        ew_illegal,
 
     // Regfile write port
-    output logic        ew_reg_we,
-    output logic [2:0]  ew_reg_id,
-    output logic [2:0]  ew_reg_row_idx,
-    output logic [2:0]  ew_reg_beat_idx,
-    output logic [31:0] ew_reg_wdata,
+    output logic                 ew_reg_we,
+    output logic [REG_ID_W-1:0]  ew_reg_id,
+    output logic [RF_ROW_W-1:0]  ew_reg_row_idx,
+    output logic [RF_BEAT_W-1:0] ew_reg_beat_idx,
+    output logic [31:0]          ew_reg_wdata,
 
     // Regfile read ports
-    output logic [2:0]  read_id_A,
-    output logic [2:0]  read_row_A,
-    output logic [2:0]  read_beat_A,
-    input  logic [31:0] read_data_A,
+    output logic [REG_ID_W-1:0]  read_id_A,
+    output logic [RF_ROW_W-1:0]  read_row_A,
+    output logic [RF_BEAT_W-1:0] read_beat_A,
+    input  logic [31:0]          read_data_A,
 
-    output logic [2:0]  read_id_B,
-    output logic [2:0]  read_row_B,
-    output logic [2:0]  read_beat_B,
-    input  logic [31:0] read_data_B
+    output logic [REG_ID_W-1:0]  read_id_B,
+    output logic [RF_ROW_W-1:0]  read_row_B,
+    output logic [RF_BEAT_W-1:0] read_beat_B,
+    input  logic [31:0]          read_data_B
 );
 
     typedef enum logic [2:0] {
@@ -45,8 +50,10 @@ module matrix_ew #(
 
     fsm_state_t state;
 
-    localparam logic [2:0] MATRIX_DIM_L     = MATRIX_DIM;
-    localparam logic [2:0] BEATS_PER_ROW_L  = BEATS_PER_ROW;
+    // active_M/active_N hold 0..MATRIX_DIM / 0..BEATS_PER_ROW, so one bit
+    // wider than the row/beat index.
+    localparam int M_W = cnt_w(MATRIX_DIM);
+    localparam int N_W = cnt_w(BEATS_PER_ROW);
     localparam logic [31:0] INT32_MAX       = 32'h7FFF_FFFF;
     localparam logic [31:0] INT32_MIN       = 32'h8000_0000;
     localparam logic signed [63:0] INT32_MAX_S64 = 64'sh0000_0000_7FFF_FFFF;
@@ -55,26 +62,27 @@ module matrix_ew #(
     // Latched decode/config fields
     logic [3:0] func4;
     logic [2:0] ctrl;
-    logic [2:0] ms1_id;
-    logic [2:0] ms2_id;
-    logic [2:0] md_id;
-    logic [2:0] active_M;
-    logic [2:0] active_N;
+    logic [REG_ID_W-1:0] ms1_id;
+    logic [REG_ID_W-1:0] ms2_id;
+    logic [REG_ID_W-1:0] md_id;
+    logic [M_W-1:0] active_M;
+    logic [N_W-1:0] active_N;
     logic       sat_en_q;
 
     // Loop and pipeline registers
-    logic [2:0] row_cnt;
-    logic [2:0] col_cnt;
-    logic [2:0] op_row_q;
-    logic [2:0] op_col_q;
+    logic [RF_ROW_W-1:0]  row_cnt;
+    logic [RF_BEAT_W-1:0] col_cnt;
+    logic [RF_ROW_W-1:0]  op_row_q;
+    logic [RF_BEAT_W-1:0] op_col_q;
     logic [31:0] op_a_q;
     logic [31:0] op_b_q;
     logic [31:0] result_q;
     logic [31:0] vector_snapshot [0:BEATS_PER_ROW-1];
 
     // Combinational helpers
-    logic [2:0] cfg_M;
-    logic [2:0] cfg_N;
+    logic [M_W-1:0] cfg_M;
+    logic [N_W-1:0] cfg_N;
+    logic       shape_illegal;
     logic       is_matrix_vector;
     logic [31:0] alu_res;
     logic signed [63:0] op_a_s64;
@@ -82,24 +90,13 @@ module matrix_ew #(
     logic signed [63:0] alu_s64;
     logic               alu_can_saturate;
 
-    function automatic logic [2:0] clamp_tile(
-        input logic [31:0] value,
-        input logic [2:0]  limit
-    );
-        begin
-            if (value == 32'd0) begin
-                clamp_tile = 3'd0;
-            end else if (value > {29'b0, limit}) begin
-                clamp_tile = limit;
-            end else begin
-                clamp_tile = value[2:0];
-            end
-        end
-    endfunction
-
+    // Proposal 5.5.1: legal shape is mtilem <= ALEN/ARLEN, mtilen <= ARLEN/32.
+    // A larger tile is an illegal instruction (no clamp, no register write).
     always_comb begin
-        cfg_M = clamp_tile(out_mtilem, MATRIX_DIM_L);
-        cfg_N = clamp_tile(out_mtilen, BEATS_PER_ROW_L);
+        shape_illegal = (out_mtilem > MATRIX_DIM) ||
+                        (out_mtilen > BEATS_PER_ROW);
+        cfg_M = out_mtilem[M_W-1:0];
+        cfg_N = out_mtilen[N_W-1:0];
     end
 
     always_comb begin
@@ -115,15 +112,15 @@ module matrix_ew #(
 
         if (state == ST_SNAPSHOT) begin
             read_id_A   = ms1_id;
-            read_row_A  = ctrl;
+            read_row_A  = RF_ROW_W'(ctrl) & RF_ROW_W'(MATRIX_DIM - 1); // only log2(ROWNUM) bits of imm3
             read_beat_A = col_cnt;
-            read_id_B   = 3'b0;
-            read_row_B  = 3'b0;
-            read_beat_B = 3'b0;
+            read_id_B   = '0;
+            read_row_B  = '0;
+            read_beat_B = '0;
         end else if (state == ST_READ && is_matrix_vector) begin
-            read_id_A   = 3'b0;
-            read_row_A  = 3'b0;
-            read_beat_A = 3'b0;
+            read_id_A   = '0;
+            read_row_A  = '0;
+            read_beat_A = '0;
         end
     end
 
@@ -142,7 +139,7 @@ module matrix_ew #(
                 alu_can_saturate = 1'b1;
             end
             4'b0001: begin
-                alu_s64 = op_b_s64 - op_a_s64; // msub
+                alu_s64 = op_a_s64 - op_b_s64; // msub: ms1 - ms2 (proposal 5.5.1)
                 alu_res = alu_s64[31:0];
                 alu_can_saturate = 1'b1;
             end
@@ -201,6 +198,7 @@ module matrix_ew #(
             op_b_q      <= '0;
             result_q    <= '0;
             ew_done     <= 1'b0;
+            ew_illegal  <= 1'b0;
             ew_reg_we   <= 1'b0;
             ew_reg_id   <= '0;
             ew_reg_row_idx  <= '0;
@@ -237,8 +235,11 @@ module matrix_ew #(
                         active_M <= cfg_M;
                         active_N <= cfg_N;
                         sat_en_q <= out_xmsaten;
+                        ew_illegal <= shape_illegal;
 
-                        if (cfg_M != 3'd0 && cfg_N != 3'd0 &&
+                        if (shape_illegal) begin
+                            state <= ST_DONE;
+                        end else if (cfg_M != '0 && cfg_N != '0 &&
                             matrix_insn[27:26] == 2'b01 &&
                             matrix_insn[19:18] != 2'b11 &&
                             matrix_insn[11:10] != 2'b11) begin
@@ -256,12 +257,12 @@ module matrix_ew #(
                 ST_SNAPSHOT: begin
                     vector_snapshot[col_cnt] <= read_data_A;
 
-                    if (col_cnt == active_N - 3'd1) begin
+                    if (col_cnt == active_N - 1'b1) begin
                         col_cnt <= '0;
                         row_cnt <= '0;
                         state   <= ST_READ;
                     end else begin
-                        col_cnt <= col_cnt + 3'd1;
+                        col_cnt <= col_cnt + 1'b1;
                     end
                 end
 
@@ -295,16 +296,16 @@ module matrix_ew #(
                     ew_reg_beat_idx <= op_col_q;
                     ew_reg_wdata    <= result_q;
 
-                    if (col_cnt == active_N - 3'd1) begin
+                    if (col_cnt == active_N - 1'b1) begin
                         col_cnt <= '0;
-                        if (row_cnt == active_M - 3'd1) begin
+                        if (row_cnt == active_M - 1'b1) begin
                             state <= ST_DONE;
                         end else begin
-                            row_cnt <= row_cnt + 3'd1;
+                            row_cnt <= row_cnt + 1'b1;
                             state   <= ST_READ;
                         end
                     end else begin
-                        col_cnt <= col_cnt + 3'd1;
+                        col_cnt <= col_cnt + 1'b1;
                         state   <= ST_READ;
                     end
                 end
