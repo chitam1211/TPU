@@ -1,0 +1,1 @@
+cycles=552 matrix_insns=14 matrix_busy=449 dut=core_matrix
