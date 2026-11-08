@@ -1,0 +1,38 @@
+// Overlay cho Kria Ubuntu (xmutil / fpgautil). Bien dich tren board:
+//   dtc -@ -O dtb -o rv32if_matrix.dtbo rv32if_matrix.dtsi
+// - firmware-name: file .bin do build_kr260.tcl tao (build/out/rv32if_matrix.bin)
+// - clocking0: pl_clk0 = 100 MHz (zynqmp_clk 71 = PL0_REF). Sua neu build voi tan so khac.
+// - config-afi <14 0x0>: M_AXI_HPM0_FPD rong 32 bit (thiet ke dat MAXIGP0__DATA_WIDTH = 32)
+/dts-v1/;
+/plugin/;
+/ {
+    fragment@0 {
+        target = <&fpga_full>;
+        overlay0: __overlay__ {
+            #address-cells = <2>;
+            #size-cells = <2>;
+            firmware-name = "rv32if_matrix.bin";
+            pid = <0x0>;
+            resets = <&zynqmp_reset 116>, <&zynqmp_reset 117>, <&zynqmp_reset 118>, <&zynqmp_reset 119>;
+            uid = <0x0>;
+        };
+    };
+    fragment@1 {
+        target = <&amba>;
+        overlay1: __overlay__ {
+            afi0: afi0 {
+                compatible = "xlnx,afi-fpga";
+                config-afi = <0 0>, <1 0>, <2 0>, <3 0>, <4 0>, <5 0>, <6 0>, <7 0>,
+                             <8 0>, <9 0>, <10 0>, <11 0>, <12 0>, <13 0>, <14 0x0>, <15 0x0>;
+            };
+            clocking0: clocking0 {
+                #clock-cells = <0>;
+                assigned-clock-rates = <100000000>;
+                assigned-clocks = <&zynqmp_clk 71>;
+                clock-output-names = "fabric_clk";
+                clocks = <&zynqmp_clk 71>;
+                compatible = "xlnx,fclk";
+            };
+        };
+    };
+};
