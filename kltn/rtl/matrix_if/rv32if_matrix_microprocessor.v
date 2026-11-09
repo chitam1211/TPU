@@ -1,4 +1,4 @@
-module rv32i_matrix_microprocessor (
+module rv32if_matrix_microprocessor (
     input wire clk,
     input wire rst,
     input wire [31:0]instruction,
