@@ -9,6 +9,8 @@
 // Output (stdout):
 //   RETIRE <cycle> <pc> <insn>      one line per instruction leaving WB
 //   STATE  ...                      final state: GPR, FPR, matrix registers, tile CSRs, data RAM
+//                                   (RAM range +dump_lo/+dump_hi, default 0x1000-0x3FEF)
+//   MARK <value> <cycle>            a word store to MARK (0x3FE0): timing points for benchmarks
 //   MATRIX_REGRESS_DONE cycles=<n> matrix_insns=<n> matrix_busy=<n>
 `ifndef DUT
 `define DUT core_matrix
@@ -21,8 +23,9 @@
 module tb_matrix_regress;
     localparam int MEM_BYTES = 65536;
     localparam int TOHOST    = 32'h3FF0;
-    localparam int DUMP_LO   = 32'h1000;
-    localparam int DUMP_HI   = 32'h3FF0;        // exclusive
+    localparam int MARK      = 32'h3FE0;
+    int dump_lo = 32'h1000;
+    int dump_hi = 32'h3FF0;                     // exclusive
 
     logic clk = 1'b0;
     logic rst = 1'b0;
@@ -68,6 +71,8 @@ module tb_matrix_regress;
         string prog;
         if (!$value$plusargs("mem=%s", prog)) $fatal(1, "Missing +mem=<program+data hex>");
         if ($value$plusargs("max_cycles=%d", max_cycles)) begin end
+        if ($value$plusargs("dump_lo=%h", dump_lo)) begin end
+        if ($value$plusargs("dump_hi=%h", dump_hi)) begin end
         for (int i = 0; i < MEM_BYTES; i++) mem[i] = 8'h00;
         $readmemh(prog, mem);
         repeat (5) @(posedge clk);
@@ -82,6 +87,12 @@ module tb_matrix_regress;
             if (cycle >= max_cycles) $fatal(1, "MATRIX_REGRESS_TIMEOUT cycles=%0d pc=%08x", cycle, pc_address);
             if (matrix_done) matrix_insns <= matrix_insns + 1;
             if (matrix_busy) busy_cycles <= busy_cycles + 1;
+            // Retire trace: same pipeline names in core_matrix and the XIF version. Printed
+            // before the memory handling, so the instruction in WB on the edge of the TOHOST
+            // store (it writes its register on this edge and is in the state dump) is listed
+            // too; with forwarding it can be the instruction right before that store.
+            if (`CORE.wb_valid)
+                $display("RETIRE %0d %08x %08x", cycle, `CORE.pre_pc_addr_wb, `CORE.instruction_wb);
             if (instruction_mem_request) begin
                 if (pc_address > MEM_BYTES - 4) $fatal(1, "Instruction address outside RAM: %08x", pc_address);
                 instruction <= read_word(pc_address);
@@ -94,6 +105,8 @@ module tb_matrix_regress;
                     if (mask_signal[1]) mem[data_word_address + 1] <= store_data_out[15:8];
                     if (mask_signal[2]) mem[data_word_address + 2] <= store_data_out[23:16];
                     if (mask_signal[3]) mem[data_word_address + 3] <= store_data_out[31:24];
+                    if (alu_out_address == MARK)
+                        $display("MARK %0d %0d", store_data_out, cycle);
                     if (alu_out_address == TOHOST && store_data_out == 32'd1) begin
                         @(negedge clk);
                         dump_state();
@@ -104,9 +117,6 @@ module tb_matrix_regress;
                 end
                 data_mem_valid <= 1'b1;
             end
-            // Retire trace: same pipeline names in core_matrix and the XIF version.
-            if (`CORE.wb_valid)
-                $display("RETIRE %0d %08x %08x", cycle, `CORE.pre_pc_addr_wb, `CORE.instruction_wb);
         end
     end
 
@@ -127,7 +137,7 @@ module tb_matrix_regress;
         $display("STATE mtilem %08x", mtilem);
         $display("STATE mtilen %08x", mtilen);
         $display("STATE mtilek %08x", mtilek);
-        for (int a = DUMP_LO; a < DUMP_HI; a += 4)
+        for (int a = dump_lo; a < dump_hi; a += 4)
             $display("STATE mem%04x %08x", a, read_word(a));
         $display("MATRIX_REGRESS_DONE cycles=%0d matrix_insns=%0d matrix_busy=%0d",
                  cycle, matrix_insns, busy_cycles);

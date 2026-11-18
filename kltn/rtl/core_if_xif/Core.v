@@ -1,0 +1,810 @@
+// core_if + CORE-V eXtension Interface (CV-X-IF v1.0.0) port, docs/xif_design.md section 6.1.
+// Opcode 0x2B (custom-1) is offloaded from EX; every other instruction runs as in rtl/core_if.
+// XIF = 0 (default): no coprocessor, the XIF inputs are ignored (they may be left unconnected)
+// and 0x2B is rejected, i.e. a NOP as in rtl/core_if. XIF = 1: core_matrix_xif.
+// Configuration (cvxif_pkg): X_ID_WIDTH 3, X_NUM_RS 2, X_ISSUE_REGISTER_SPLIT 0, one hart
+// (hartid 0), X_MEM_WIDTH 32. Fields not listed here are constants, set by the top.
+module core #(
+    parameter XIF = 0
+)(
+    input wire clk,
+    input wire rst,
+    input wire data_mem_valid,
+    input wire instruc_mem_valid,
+    input wire [31:0] instruction,
+    input wire [31:0] load_data_in,
+
+    output wire load_signal,
+    output wire instruction_mem_we_re,
+    output wire instruction_mem_request,
+    output wire data_mem_we_re,
+    output wire data_mem_request,
+    output wire [3:0]  mask_singal,
+    output wire [3:0]  instruc_mask_singal,
+    output wire [31:0] store_data_out,
+    output wire [31:0] alu_out_address,
+    output wire [31:0] pc_address,
+
+    // CV-X-IF: issue + register (split = 0: one handshake), commit
+    output wire        xif_issue_valid,
+    input  wire        xif_issue_ready,
+    output wire [31:0] xif_issue_instr,
+    output wire [2:0]  xif_issue_id,         // also register.id and commit.id
+    input  wire        xif_issue_accept,
+    output wire [31:0] xif_register_rs1,     // register.rs[0]
+    output wire [31:0] xif_register_rs2,     // register.rs[1]
+    output wire [1:0]  xif_register_rs_valid,
+    output wire        xif_commit_valid,
+    output wire        xif_commit_kill,
+    // CV-X-IF: memory request / result (mem_resp.exc = 0, mem_result.err = 0)
+    input  wire        xif_mem_valid,
+    output wire        xif_mem_ready,
+    input  wire [31:0] xif_mem_addr,
+    input  wire        xif_mem_we,
+    input  wire [3:0]  xif_mem_be,
+    input  wire [31:0] xif_mem_wdata,
+    output wire        xif_mem_result_valid,
+    output wire [31:0] xif_mem_result_rdata,
+    // CV-X-IF: result (rd is the instruction's rd field, exc/err are not used)
+    input  wire        xif_result_valid,
+    output wire        xif_result_ready,
+    input  wire [31:0] xif_result_data,
+    input  wire        xif_result_we,
+
+    // jal x0, 0 (0x0000006F) is executing in EX. Only correct-path instructions reach EX,
+    // so this does not depend on how far fetch runs ahead. Used by the SoC halt detector.
+    output wire        halt_hint
+    );
+
+    wire [31:0] instruc_data_out;
+    wire [31:0] pre_address_pc;
+    wire [31:0] instruction_fetch , instruction_execute;
+    wire [31:0] instruction_memstage , instruction_wb;
+    wire [31:0] pre_pc_addr_fetch , pre_pc_addr_execute;
+    // IF/ID: decode slot plus one skid slot, so a fetch can be in flight every cycle.
+    reg  [31:0] instruction_decode , pre_pc_addr_decode;
+    reg  [31:0] skid_instruction , skid_pc;
+    reg         skid_valid;
+    wire [31:0] pre_pc_addr_memstage , pre_pc_addr_wb;
+    wire load_decode , load_execute , load_memstage;
+    wire store_decode , store_execute , store_memstage;
+    wire jalr_decode;
+    wire next_sel_decode , next_sel_execute;
+    wire reg_write_decode , reg_write_execute , reg_write_memstage;
+    wire branch_result_decode , branch_result_execute;
+    wire [3:0]  mask;
+    wire [3:0]  alu_control_decode , alu_control_execute;
+    wire [1:0]  mem_to_reg_decode , mem_to_reg_execute;
+    wire [1:0]  mem_to_reg_memstage , mem_to_reg_wb;
+    wire [4:0]  rs1_decode , rs1_execute;
+    wire [4:0]  rs2_decode , rs2_execute;
+    wire [4:0]  rd_memstage;
+    wire [31:0] op_b_decode , op_b_execute , op_b_memstage;
+    wire [31:0] rs1_data_decode;
+    wire [31:0] opa_mux_out_decode , opa_mux_out_execute;
+    wire [31:0] opb_mux_out_decode , opb_mux_out_execute;
+    wire [31:0] opc_mux_out_decode , opc_mux_out_execute;
+    wire [31:0] alu_res_out_execute , alu_res_out_memstage;
+    wire [31:0] alu_res_out_wb;
+    wire [31:0] next_sel_address_execute , next_sel_address_memstage;
+    wire [31:0] next_sel_address_wb;
+    wire [31:0] wrap_load_memstage , wrap_load_wb;
+    wire [31:0] rd_wb_data;
+    wire [31:0] alu_in_a , alu_in_b;
+    wire reg_write_wb, jalr_execute;
+    wire fp_reg_write_decode, fp_reg_write_execute;
+    wire fp_reg_write_memstage, fp_reg_write_wb;
+    wire fp_load_decode, fp_store_decode, matrix_decode;
+    wire fp_addsub_decode, fp_mul_decode, fp_divsqrt_decode, fp_fma_decode;
+    wire fp_cvt_to_int_decode, fp_cvt_to_float_decode;
+    wire fp_compare_decode, fp_minmax_decode, fp_csr_decode;
+    wire fp_use_x1_decode, fp_use_f1_decode, fp_use_f2_decode, fp_use_f3_decode;
+    reg fetch_pending, discard_fetch;
+    reg decode_valid, execute_valid, memstage_valid, wb_valid;
+    reg mem_request_sent;
+    wire memory_op = memstage_valid && (load_memstage || store_memstage);
+    wire memory_wait = memory_op && !data_mem_valid;
+    wire fp_misc_execute;
+    wire fp_compare_execute;
+    wire fp_minmax_execute;
+    wire [31:0] fp_min_result, fp_max_result;
+    wire [4:0] fp_minmax_flags;
+    wire [31:0] fp_minmax_result = instruction_execute[12] ? fp_max_result : fp_min_result;
+    wire [31:0] fp_compare_result;
+    wire [4:0] fp_compare_flags;
+    wire [2:0] fp_misc_op;
+    wire [31:0] fp_misc_result;
+    // EX-stage decode of the one-cycle FP units (fp_misc, fp32_compare),
+    // from the instruction already carried to EX.
+    fp_decode_ex u_fp_decode_execute(
+        .opcode(instruction_execute[6:0]), .funct3(instruction_execute[14:12]),
+        .rs2(instruction_execute[24:20]), .funct7(instruction_execute[31:25]),
+        .compare(fp_compare_execute), .minmax(fp_minmax_execute),
+        .misc(fp_misc_execute), .misc_op(fp_misc_op)
+    );
+    fp_misc u_fp_misc(
+        .a(opa_mux_out_execute), .b(opb_mux_out_execute),
+        .operation(fp_misc_op), .result(fp_misc_result)
+    );
+    fp32_compare u_fp_compare(
+        .a(opa_mux_out_execute), .b(opb_mux_out_execute),
+        .operation(instruction_execute[14:12]),
+        .result(fp_compare_result), .flags(fp_compare_flags),
+        .min_result(fp_min_result), .max_result(fp_max_result), .minmax_flags(fp_minmax_flags)
+    );
+    // Full funct7 is required: other OP-FP operations must not alias ADD/SUB.
+    function is_fp_addsub;
+        input [31:0] insn;
+        begin is_fp_addsub = insn[6:0] == 7'h53 &&
+            (insn[31:25] == 7'h00 || insn[31:25] == 7'h04); end
+    endfunction
+    function is_fp_mul;
+        input [31:0] insn;
+        begin is_fp_mul = insn[6:0] == 7'h53 && insn[31:25] == 7'h08; end
+    endfunction
+    function is_fp_divsqrt;
+        input [31:0] insn;
+        begin is_fp_divsqrt = insn[6:0] == 7'h53 && (insn[31:25] == 7'h0c ||
+            (insn[31:25] == 7'h2c && insn[24:20] == 0)); end
+    endfunction
+    // R4 fused multiply-add, single precision only (fmt=00).
+    function is_fp_fma;
+        input [31:0] insn;
+        begin is_fp_fma = insn[6:4] == 3'b100 && insn[1:0] == 2'b11 && insn[26:25] == 2'b00; end
+    endfunction
+    function is_fp_convert;
+        input [31:0] insn;
+        begin is_fp_convert = insn[6:0] == 7'h53 &&
+            (insn[31:25] == 7'h60 || insn[31:25] == 7'h68) &&
+            insn[24:21] == 0; end
+    endfunction
+    function is_fp_compare;
+        input [31:0] insn;
+        begin is_fp_compare = insn[6:0] == 7'h53 &&
+            insn[31:25] == 7'h50 && insn[14:12] <= 3'd2; end
+    endfunction
+    function updates_fp_flags;
+        input [31:0] insn;
+        begin updates_fp_flags = is_fp_addsub(insn) || is_fp_mul(insn) ||
+            is_fp_divsqrt(insn) || is_fp_fma(insn) || is_fp_convert(insn) ||
+            is_fp_compare(insn) || is_fp_minmax(insn); end
+    endfunction
+    function is_fp_minmax;
+        input [31:0] insn;
+        begin is_fp_minmax = insn[6:0] == 7'h53 &&
+            insn[31:25] == 7'h14 && insn[14:12] <= 3'd1; end
+    endfunction
+    function is_fp_csr;
+        input [31:0] insn;
+        begin is_fp_csr = insn[6:0] == 7'h73 && insn[13:12] != 0 &&
+            insn[31:20] >= 12'h001 && insn[31:20] <= 12'h003; end
+    endfunction
+    wire fp_addsub_execute = execute_valid && is_fp_addsub(instruction_execute);
+    wire fp_mul_execute = execute_valid && is_fp_mul(instruction_execute);
+    wire fp_divsqrt_execute = execute_valid && is_fp_divsqrt(instruction_execute);
+    wire fp_fma_execute = execute_valid && is_fp_fma(instruction_execute);
+    wire fp_convert_execute = execute_valid && is_fp_convert(instruction_execute);
+    wire fp_arith_execute = fp_addsub_execute || fp_mul_execute ||
+                            fp_divsqrt_execute || fp_fma_execute || fp_convert_execute;
+    wire csr_execute = execute_valid && is_fp_csr(instruction_execute);
+    wire csr_memstage = memstage_valid && is_fp_csr(instruction_memstage);
+    wire csr_wb = wb_valid && is_fp_csr(instruction_wb);
+    wire older_fp = (execute_valid && updates_fp_flags(instruction_execute)) ||
+                    (memstage_valid && updates_fp_flags(instruction_memstage)) ||
+                    (wb_valid && updates_fp_flags(instruction_wb));
+    wire older_csr = csr_execute || csr_memstage || csr_wb;
+    wire csr_wait = (fp_csr_decode && (older_fp || older_csr)) ||
+                    ((fp_addsub_decode || fp_mul_decode || fp_divsqrt_decode || fp_fma_decode || fp_cvt_to_int_decode ||
+                      fp_cvt_to_float_decode || fp_compare_decode || fp_minmax_decode) && older_csr);
+    wire [2:0] frm, effective_rm;
+    wire [4:0] fflags, fp_flags, fp_addsub_flags, fp_mul_flags, fp_divsqrt_flags, fp_fma_flags, fp_convert_flags;
+    wire [31:0] csr_read_data, fp_result, fp_addsub_result, fp_mul_result;
+    wire [31:0] fp_divsqrt_result, fp_fma_result, fp_convert_result;
+    wire fp_done, fp_busy, fp_illegal_rm;
+    wire fp_addsub_done, fp_addsub_busy, fp_addsub_illegal_rm;
+    wire fp_mul_done, fp_mul_busy, fp_mul_illegal_rm;
+    wire fp_divsqrt_done, fp_divsqrt_busy, fp_divsqrt_illegal_rm;
+    wire fp_fma_done, fp_fma_busy, fp_fma_illegal_rm;
+    wire fp_convert_done, fp_convert_busy, fp_convert_illegal_rm;
+    reg fp_issued, fp_complete;
+    reg [4:0] fp_flags_memstage, fp_flags_wb;
+    reg [31:0] csr_operand_wb;
+    wire [31:0] csr_operand_execute = instruction_execute[14] ?
+        {27'b0, instruction_execute[19:15]} : opa_mux_out_execute;
+    wire fp_start = fp_arith_execute && !fp_issued && !memory_wait;
+    assign fp_done = fp_addsub_done || fp_mul_done || fp_divsqrt_done || fp_fma_done || fp_convert_done;
+    assign fp_busy = fp_addsub_busy || fp_mul_busy || fp_divsqrt_busy || fp_fma_busy || fp_convert_busy;
+    assign fp_result = fp_convert_execute ? fp_convert_result :
+                       fp_divsqrt_execute ? fp_divsqrt_result :
+                       fp_fma_execute ? fp_fma_result :
+                       (fp_mul_execute ? fp_mul_result : fp_addsub_result);
+    assign fp_flags = fp_convert_execute ? fp_convert_flags :
+                      fp_divsqrt_execute ? fp_divsqrt_flags :
+                      fp_fma_execute ? fp_fma_flags :
+                      (fp_mul_execute ? fp_mul_flags : fp_addsub_flags);
+    assign fp_illegal_rm = fp_convert_execute ? fp_convert_illegal_rm :
+                           fp_divsqrt_execute ? fp_divsqrt_illegal_rm :
+                           fp_fma_execute ? fp_fma_illegal_rm :
+                           (fp_mul_execute ? fp_mul_illegal_rm : fp_addsub_illegal_rm);
+    wire fp_wait = fp_arith_execute && !(fp_done || fp_complete);
+
+    // CV-X-IF. A 0x2B instruction is offered once, from EX, with rs1/rs2 from the forwarded
+    // EX operands (decode treats it as reading both). It is committed in the same cycle: older
+    // instructions are in MEM/WB and cannot redirect. Rejected (accept = 0): it leaves EX as a
+    // NOP. Accepted: EX waits for the result; result.we writes rd through MEM/WB like an ALU
+    // result. With XIF = 0 the inputs are replaced by "ready, reject, nothing to send".
+    wire x_issue_ready  = XIF ? xif_issue_ready  : 1'b1;
+    wire x_issue_accept = XIF ? xif_issue_accept : 1'b0;
+    wire x_mem_valid    = XIF ? xif_mem_valid    : 1'b0;
+    wire x_result_valid = XIF ? xif_result_valid : 1'b0;
+    reg  xif_issued, xif_accepted, xif_complete, xif_we_q, xif_mem_pending;
+    reg  [31:0] xif_data_q;
+    reg  [2:0]  xif_id;
+    wire xif_execute     = execute_valid && instruction_execute[6:0] == 7'h2B;
+    wire xif_issue_fire  = xif_issue_valid && x_issue_ready;
+    wire xif_result_fire = x_result_valid && xif_result_ready;
+    wire xif_wait = xif_execute && !(xif_complete || (xif_issue_fire && !x_issue_accept) || xif_result_fire);
+    wire xif_we          = xif_result_fire ? xif_result_we   : xif_we_q;
+    wire [31:0] xif_data = xif_result_fire ? xif_result_data : xif_data_q;
+    wire execute_wait = memory_wait || fp_wait || xif_wait;
+    assign xif_issue_valid      = xif_execute && !xif_issued;
+    assign xif_issue_instr       = instruction_execute;
+    assign xif_issue_id          = xif_id;
+    assign xif_register_rs1      = opa_mux_out_execute;
+    assign xif_register_rs2      = opb_mux_out_execute;
+    assign xif_register_rs_valid = 2'b11;
+    assign xif_commit_valid      = xif_issue_fire;
+    assign xif_commit_kill       = 1'b0;
+    assign xif_result_ready      = xif_execute && xif_issued && xif_accepted && !xif_complete;
+
+    // The coprocessor uses the data port when MEM has no access in flight; EX holds the
+    // offloaded instruction, so MEM stays empty until its result. One request at a time;
+    // every request (load or store) gets one mem_result, when the memory answers.
+    wire xif_mem_fire = x_mem_valid && xif_mem_ready;
+    wire mem_we_re_core;
+    wire [31:0] store_data_core;
+    assign xif_mem_ready        = !memory_op && !xif_mem_pending;
+    assign xif_mem_result_valid = xif_mem_pending && data_mem_valid;
+    assign xif_mem_result_rdata = load_data_in;
+
+    always @(posedge clk or negedge rst) begin
+        if (!rst) begin
+            xif_issued <= 0; xif_accepted <= 0; xif_complete <= 0; xif_we_q <= 0;
+            xif_data_q <= 0; xif_id <= 0; xif_mem_pending <= 0;
+        end else begin
+            if (xif_issue_fire) begin
+                xif_issued <= 1;
+                xif_accepted <= x_issue_accept;
+                xif_we_q <= 0;
+                xif_id <= xif_id + 3'd1;
+                if (!x_issue_accept) xif_complete <= 1;
+            end
+            if (xif_result_fire) begin
+                xif_complete <= 1;
+                xif_we_q <= xif_result_we;
+                xif_data_q <= xif_result_data;
+            end
+            // The instruction leaves EX: clear its state, xif_we_q included. Otherwise an
+            // instruction rejected in its issue cycle (it leaves EX at once, xif_we = xif_we_q)
+            // would write rd with the result of the previous offloaded instruction.
+            if (!execute_wait) begin
+                xif_issued <= 0; xif_accepted <= 0; xif_complete <= 0; xif_we_q <= 0;
+            end
+            if (xif_mem_fire) xif_mem_pending <= 1;
+            else if (data_mem_valid) xif_mem_pending <= 0;
+        end
+    end
+
+    wire [31:0] execute_result = xif_execute ? xif_data :
+                                fp_arith_execute ? fp_result :
+                                (fp_minmax_execute ? fp_minmax_result :
+                                (fp_compare_execute ? fp_compare_result :
+                                (fp_misc_execute ? fp_misc_result :
+                                (csr_execute ? csr_read_data : alu_res_out_execute))));
+    assign effective_rm = instruction_execute[14:12] == 3'b111 ?
+                          frm : instruction_execute[14:12];
+    fp32_addsub u_fp_addsub(
+        .clk(clk), .rst(rst), .start(fp_start && fp_addsub_execute), .sub(instruction_execute[27]),
+        .a(opa_mux_out_execute), .b(opb_mux_out_execute), .rm(effective_rm),
+        .busy(fp_addsub_busy), .done(fp_addsub_done), .result(fp_addsub_result), .flags(fp_addsub_flags),
+        .illegal_rm(fp_addsub_illegal_rm)
+    );
+    fp32_mul u_fp_mul(
+        .clk(clk), .rst(rst), .start(fp_start && fp_mul_execute),
+        .a(opa_mux_out_execute), .b(opb_mux_out_execute), .rm(effective_rm),
+        .busy(fp_mul_busy), .done(fp_mul_done), .result(fp_mul_result),
+        .flags(fp_mul_flags), .illegal_rm(fp_mul_illegal_rm)
+    );
+    fp32_divsqrt u_fp_divsqrt(
+        .clk(clk), .rst(rst), .start(fp_start && fp_divsqrt_execute),
+        .is_sqrt(instruction_execute[30]),
+        .a(opa_mux_out_execute), .b(opb_mux_out_execute), .rm(effective_rm),
+        .busy(fp_divsqrt_busy), .done(fp_divsqrt_done), .result(fp_divsqrt_result),
+        .flags(fp_divsqrt_flags), .illegal_rm(fp_divsqrt_illegal_rm)
+    );
+    // Opcode bit 2 negates the addend (FMSUB/FNMADD), bit 3 the product (FNMSUB/FNMADD).
+    fp32_fma u_fp_fma(
+        .clk(clk), .rst(rst), .start(fp_start && fp_fma_execute),
+        .negate_product(instruction_execute[3]), .negate_addend(instruction_execute[2]),
+        .a(opa_mux_out_execute), .b(opb_mux_out_execute), .c(opc_mux_out_execute),
+        .rm(effective_rm),
+        .busy(fp_fma_busy), .done(fp_fma_done), .result(fp_fma_result),
+        .flags(fp_fma_flags), .illegal_rm(fp_fma_illegal_rm)
+    );
+    fp32_convert u_fp_convert(
+        .clk(clk), .rst(rst), .start(fp_start && fp_convert_execute),
+        .to_float(instruction_execute[28]), .unsigned_mode(instruction_execute[20]),
+        .a(opa_mux_out_execute), .rm(effective_rm),
+        .busy(fp_convert_busy), .done(fp_convert_done),
+        .result(fp_convert_result), .flags(fp_convert_flags),
+        .illegal_rm(fp_convert_illegal_rm)
+    );
+    fp_csr u_fp_csr(
+        .clk(clk), .rst(rst), .read_addr(instruction_execute[31:20]),
+        .read_data(csr_read_data),
+        .write_en(csr_wb && (instruction_wb[13:12] == 1 || instruction_wb[19:15] != 0)),
+        .write_addr(instruction_wb[31:20]), .write_op(instruction_wb[13:12]),
+        .write_data(csr_operand_wb),
+        .flags_en(wb_valid && ((fp_reg_write_wb && (is_fp_addsub(instruction_wb) || is_fp_mul(instruction_wb) ||
+                                                    is_fp_divsqrt(instruction_wb) || is_fp_fma(instruction_wb))) ||
+                              is_fp_convert(instruction_wb) ||
+                              is_fp_compare(instruction_wb) || is_fp_minmax(instruction_wb))),
+        .flags_in(fp_flags_wb), .frm(frm), .fflags(fflags)
+    );
+    // Sideband state follows the same EX/MEM and MEM/WB boundaries as results.
+    always @(posedge clk or negedge rst) begin
+        if (!rst) begin
+            fp_issued <= 0; fp_complete <= 0;
+            fp_flags_memstage <= 0; fp_flags_wb <= 0; csr_operand_wb <= 0;
+        end else begin
+            if (fp_start) fp_issued <= 1;
+            if (fp_done) fp_complete <= 1;
+            if (!execute_wait) begin fp_issued <= 0; fp_complete <= 0; end
+            if (!memory_wait)
+                fp_flags_memstage <= (execute_valid && fp_minmax_execute) ? fp_minmax_flags :
+                    (execute_valid && fp_compare_execute) ? fp_compare_flags :
+                    ((fp_arith_execute && !fp_wait && !fp_illegal_rm) ? fp_flags : 5'b0);
+            fp_flags_wb <= fp_flags_memstage;
+            csr_operand_wb <= op_b_memstage;
+        end
+    end
+
+    // Five pipeline stages with forwarding to EX (load-use waits one cycle) and one
+    // outstanding request per memory port. A request is accepted on a rising
+    // edge; valid is its completion response (including store completion).
+    // Branches and jumps resolve in EX; the instructions fetched after them are dropped.
+    reg uses_x_rs1, uses_x_rs2, uses_f_rs1, uses_f_rs2, uses_f_rs3;
+    wire redirect = execute_valid && !execute_wait &&
+                    (next_sel_execute || jalr_execute || branch_result_execute);
+    wire [31:0] redirect_address = jalr_execute ?
+                    {alu_res_out_execute[31:1], 1'b0} : alu_res_out_execute;
+    wire fetch_accept = fetch_pending && instruc_mem_valid &&
+                        !discard_fetch && !redirect;
+    assign halt_hint = execute_valid && !execute_wait && instruction_execute == 32'h0000006F;
+
+    // Source-use is determined by the instruction, not by accidental equality
+    // between an immediate field and a pending destination register number.
+    always @(*) begin
+        uses_x_rs1 = 1'b0;
+        uses_x_rs2 = 1'b0;
+        uses_f_rs1 = 1'b0;
+        uses_f_rs2 = 1'b0;
+        uses_f_rs3 = 1'b0;
+        case (instruction_decode[6:0])
+            7'b0110011, 7'b0100011, 7'b1100011: begin
+                uses_x_rs1 = 1'b1;
+                uses_x_rs2 = 1'b1;
+            end
+            7'b0010011, 7'b0000011, 7'b1100111:
+                uses_x_rs1 = 1'b1;
+            7'b0000111: uses_x_rs1 = fp_load_decode;
+            7'b0100111: begin
+                uses_x_rs1 = fp_store_decode;
+                uses_f_rs2 = fp_store_decode;
+            end
+            7'h53: begin
+                uses_x_rs1 = fp_use_x1_decode;
+                uses_f_rs1 = fp_use_f1_decode;
+                uses_f_rs2 = fp_use_f2_decode;
+            end
+            7'h43, 7'h47, 7'h4b, 7'h4f: begin
+                uses_f_rs1 = fp_use_f1_decode;
+                uses_f_rs2 = fp_use_f2_decode;
+                uses_f_rs3 = fp_use_f3_decode;
+            end
+            7'h73: uses_x_rs1 = fp_csr_decode && !instruction_decode[14];
+            7'h2B: begin                      // offloaded: the coprocessor may read both
+                uses_x_rs1 = 1'b1;
+                uses_x_rs2 = 1'b1;
+            end
+            default: begin end
+        endcase
+    end
+
+    // Results are forwarded to EX from MEM (not for loads) and from WB, so decode only
+    // waits for a load in EX: its data is forwarded from WB one cycle later. A multi-cycle
+    // FP producer holds EX (execute_wait) and is forwarded from MEM once it moves on.
+    wire load_execute_valid = execute_valid && mem_to_reg_execute == 2'b01;
+    wire x_rs1_wait = (rs1_decode != 0) && load_execute_valid && reg_write_execute &&
+                      rs1_decode == instruction_execute[11:7];
+    wire x_rs2_wait = (rs2_decode != 0) && load_execute_valid && reg_write_execute &&
+                      rs2_decode == instruction_execute[11:7];
+    // No rd!=0 filter here: f0 is writable and can have a pending producer.
+    wire f_rs1_wait = load_execute_valid && fp_reg_write_execute && rs1_decode == instruction_execute[11:7];
+    wire f_rs2_wait = load_execute_valid && fp_reg_write_execute && rs2_decode == instruction_execute[11:7];
+    wire [4:0] rs3_decode = instruction_decode[31:27];
+    wire f_rs3_wait = load_execute_valid && fp_reg_write_execute && rs3_decode == instruction_execute[11:7];
+    wire dependency_wait = (uses_x_rs1 && x_rs1_wait) ||
+                           (uses_x_rs2 && x_rs2_wait) ||
+                           (uses_f_rs1 && f_rs1_wait) ||
+                           (uses_f_rs2 && f_rs2_wait) ||
+                           (uses_f_rs3 && f_rs3_wait) || csr_wait;
+    wire decode_issue = decode_valid && !dependency_wait && !execute_wait && !redirect;
+
+    // Fetch runs ahead on PC+4, one request in flight; a new request may go out in the
+    // cycle its predecessor's response arrives. It is sent only if the response can be
+    // stored: decode slot + skid slot after this cycle's accept and issue hold at most one.
+    wire [1:0] ifid_count = decode_valid + skid_valid + fetch_accept - decode_issue;
+    assign instruction_mem_request = rst && (!fetch_pending || instruc_mem_valid) &&
+                                     !redirect && ifid_count <= 1;
+    assign data_mem_request = rst && ((memory_op && !mem_request_sent) || xif_mem_fire);
+
+    always @(posedge clk or negedge rst) begin
+        if (!rst) begin
+            fetch_pending <= 0;
+            discard_fetch <= 0;
+            decode_valid <= 0;
+            skid_valid <= 0;
+            instruction_decode <= 0;
+            pre_pc_addr_decode <= 0;
+            skid_instruction <= 0;
+            skid_pc <= 0;
+            execute_valid <= 0;
+            memstage_valid <= 0;
+            wb_valid <= 0;
+            mem_request_sent <= 0;
+        end else begin
+            if (fetch_pending && instruc_mem_valid) begin
+                fetch_pending <= 0;
+                discard_fetch <= 0;
+            end
+            if (instruction_mem_request)
+                fetch_pending <= 1;
+            if (redirect && fetch_pending && !instruc_mem_valid)
+                discard_fetch <= 1;
+
+            // IF/ID queue, oldest in the decode slot. Wrong-path entries are dropped on redirect.
+            if (redirect) begin
+                decode_valid <= 0;
+                skid_valid <= 0;
+            end else if (!decode_valid || decode_issue) begin
+                if (skid_valid) begin
+                    instruction_decode <= skid_instruction;
+                    pre_pc_addr_decode <= skid_pc;
+                    skid_valid <= fetch_accept;
+                end else begin
+                    instruction_decode <= instruction_fetch;
+                    pre_pc_addr_decode <= pre_pc_addr_fetch;
+                end
+                decode_valid <= skid_valid || fetch_accept;
+            end else if (fetch_accept) begin
+                skid_valid <= 1;
+            end
+            if (fetch_accept && (skid_valid || (decode_valid && !decode_issue))) begin
+                skid_instruction <= instruction_fetch;
+                skid_pc <= pre_pc_addr_fetch;
+            end
+
+            if (!execute_wait)
+                execute_valid <= decode_issue;
+            if (!memory_wait)
+                memstage_valid <= execute_valid && !fp_wait && !xif_wait;
+            wb_valid <= memstage_valid && !memory_wait;
+
+            if (data_mem_request)
+                mem_request_sent <= 1;
+            if (!memory_wait)
+                mem_request_sent <= 0;
+        end
+    end
+
+    //FETCH STAGE
+    fetch u_fetchstage(
+        .clk(clk),
+        .rst(rst),
+        .stall(!instruction_mem_request && !redirect),
+        .load(1'b0),
+        .jalr(1'b0),
+        .next_sel(redirect),
+        .branch_reselt(1'b0),
+        .next_address(redirect_address),
+        .instruction_fetch(instruction),
+        .instruction(instruction_fetch),
+        .address_in(0),
+        .valid(1'b0),
+        .mask(instruc_mask_singal),
+        .we_re(instruction_mem_we_re),
+        .request(),
+        .pre_address_pc(pre_pc_addr_fetch),
+        .address_out(pc_address)
+    );
+
+    //DECODE STAGE
+    decode u_decodestage(
+        .clk(clk),
+        .rst(rst),
+        .reg_write_en_in(reg_write_wb),
+        .fp_reg_write_en_in(fp_reg_write_wb),
+        .instruction(instruction_decode),
+        .pc_address(pre_pc_addr_decode),
+        .rd_wb_data(rd_wb_data),
+        .rs1(rs1_decode),
+        .rs2(rs2_decode),
+        .load(load_decode),
+        .store(store_decode),
+        .jalr(jalr_decode),
+        .next_sel(next_sel_decode),
+        .reg_write_en_out(reg_write_decode),
+        .fp_reg_write_en_out(fp_reg_write_decode),
+        .fp_load(fp_load_decode),
+        .fp_store(fp_store_decode),
+        .fp_addsub(fp_addsub_decode),
+        .fp_mul(fp_mul_decode),
+        .fp_divsqrt(fp_divsqrt_decode),
+        .fp_fma(fp_fma_decode),
+        .fp_cvt_to_int(fp_cvt_to_int_decode),
+        .fp_cvt_to_float(fp_cvt_to_float_decode),
+        .fp_compare(fp_compare_decode),
+        .fp_minmax(fp_minmax_decode),
+        .fp_csr_access(fp_csr_decode),
+        .fp_use_x1(fp_use_x1_decode),
+        .fp_use_f1(fp_use_f1_decode),
+        .fp_use_f2(fp_use_f2_decode),
+        .fp_use_f3(fp_use_f3_decode),
+        .matrix_decode(matrix_decode),
+        .mem_to_reg(mem_to_reg_decode),
+        .branch_result(branch_result_decode),
+        .opb_data(op_b_decode),
+        .rs1_data(rs1_data_decode),
+        .instruction_rd(instruction_wb),
+        .alu_control(alu_control_decode),
+        .opa_mux_out(opa_mux_out_decode),
+        .opb_mux_out(opb_mux_out_decode),
+        .opc_mux_out(opc_mux_out_decode)
+    );
+
+    //DECODE STAGE PIPELINE
+    decode_pipe u_decodepipeline(
+        .clk(clk),
+        .rst(rst),
+        .stall(execute_wait),
+        .bubble(!decode_issue),
+        .matrix_decode_in(matrix_decode),
+        .matrix_decode_out(),
+        .load_in(load_decode),
+        .store_in(store_decode),
+        .jalr_in(jalr_decode),
+        .next_sel_in(next_sel_decode),
+        .mem_to_reg_in(mem_to_reg_decode),
+        .branch_result_in(branch_result_decode),
+        .opb_data_in(op_b_decode),
+        .alu_control_in(alu_control_decode),
+        .opa_mux_in(opa_mux_out_decode),
+        .opb_mux_in(opb_mux_out_decode),
+        .opc_mux_in(opc_mux_out_decode),
+        .pre_address_in(pre_pc_addr_decode),
+        .instruction_in(instruction_decode),
+        .reg_write_in(reg_write_decode),
+        .fp_reg_write_in(fp_reg_write_decode),
+        .rs1_in(rs1_decode),
+        .rs2_in(rs2_decode),
+        .reg_write_out(reg_write_execute),
+        .fp_reg_write_out(fp_reg_write_execute),
+        .jalr_out(jalr_execute),
+        .load(load_execute),
+        .store(store_execute),
+        .next_sel(next_sel_execute),
+        .mem_to_reg(mem_to_reg_execute),
+        .branch_result(),
+        .opb_data_out(),
+        .alu_control(alu_control_execute),
+        .opa_mux_out(),
+        .opb_mux_out(),
+        .opc_mux_out(),
+        .pre_address_out(pre_pc_addr_execute),
+        .instruction_out(instruction_execute),
+        .rs1_out(rs1_execute),
+        .rs2_out(rs2_execute)
+    );
+
+    // Forwarding. A register operand takes the newest older result for the same bank:
+    // MEM (not a load: its data is not back yet) before WB. Only fields the instruction
+    // really reads are replaced, never an immediate or the PC, and xN never matches fN.
+    // Each ID/EX operand (a, b, c, store data / branch rs2 = d, branch rs1 = r) carries
+    // which bank it reads; WB is also forwarded into ID, as the register file writes at
+    // the end of that cycle. While EX waits, the operands are reloaded with their forwarded
+    // value, because the producers they come from move on.
+    function [31:0] forward;
+        input use_x, use_f;
+        input [4:0] r;
+        input [31:0] value;
+        input mem_x, mem_f;
+        input [4:0] mem_rd;
+        input [31:0] mem_value;
+        input wb_x, wb_f;
+        input [4:0] wb_rd;
+        input [31:0] wb_value;
+        begin
+            if ((use_x && r != 0 && mem_x && mem_rd == r) || (use_f && mem_f && mem_rd == r))
+                forward = mem_value;
+            else if ((use_x && r != 0 && wb_x && wb_rd == r) || (use_f && wb_f && wb_rd == r))
+                forward = wb_value;
+            else
+                forward = value;
+        end
+    endfunction
+
+    wire mem_forwardable = memstage_valid && mem_to_reg_memstage != 2'b01;
+    wire mem_fwd_x = mem_forwardable && reg_write_memstage;
+    wire mem_fwd_f = mem_forwardable && fp_reg_write_memstage;
+    wire [31:0] mem_fwd_value = mem_to_reg_memstage == 2'b10 ? next_sel_address_memstage :
+                                                                alu_res_out_memstage;
+    wire [4:0] rd_wb = instruction_wb[11:7];
+
+    wire is_branch_decode = instruction_decode[6:0] == 7'h63;
+    wire fwd_a_x_decode = uses_x_rs1 && !is_branch_decode;           // branch: operand a is the PC
+    wire fwd_b_x_decode = uses_x_rs2 && (instruction_decode[6:0] == 7'h33 ||
+                                         instruction_decode[6:0] == 7'h2B);   // 0x2B: operand b = rs2
+    wire fwd_b_f_decode = uses_f_rs2 && !fp_store_decode;
+    wire fwd_d_x_decode = uses_x_rs2 && !fwd_b_x_decode;              // store data or branch rs2
+
+    reg [31:0] opa_execute_q, opb_execute_q, opc_execute_q, opd_execute_q, rs1x_execute_q;
+    reg fwd_a_x, fwd_a_f, fwd_b_x, fwd_b_f, fwd_c_f, fwd_d_x, fwd_d_f, fwd_r_x;
+    wire [31:0] rs1x_execute;
+    always @(posedge clk or negedge rst) begin
+        if (!rst) begin
+            opa_execute_q <= 0; opb_execute_q <= 0; opc_execute_q <= 0;
+            opd_execute_q <= 0; rs1x_execute_q <= 0;
+            {fwd_a_x, fwd_a_f, fwd_b_x, fwd_b_f, fwd_c_f, fwd_d_x, fwd_d_f, fwd_r_x} <= 0;
+        end else if (execute_wait) begin
+            opa_execute_q <= opa_mux_out_execute;
+            opb_execute_q <= opb_mux_out_execute;
+            opc_execute_q <= opc_mux_out_execute;
+            opd_execute_q <= op_b_execute;
+            rs1x_execute_q <= rs1x_execute;
+        end else begin
+            opa_execute_q <= forward(fwd_a_x_decode, uses_f_rs1, rs1_decode, opa_mux_out_decode,
+                                     1'b0, 1'b0, 5'd0, 32'd0, reg_write_wb, fp_reg_write_wb, rd_wb, rd_wb_data);
+            opb_execute_q <= forward(fwd_b_x_decode, fwd_b_f_decode, rs2_decode, opb_mux_out_decode,
+                                     1'b0, 1'b0, 5'd0, 32'd0, reg_write_wb, fp_reg_write_wb, rd_wb, rd_wb_data);
+            opc_execute_q <= forward(1'b0, uses_f_rs3, rs3_decode, opc_mux_out_decode,
+                                     1'b0, 1'b0, 5'd0, 32'd0, reg_write_wb, fp_reg_write_wb, rd_wb, rd_wb_data);
+            opd_execute_q <= forward(fwd_d_x_decode, fp_store_decode, rs2_decode, op_b_decode,
+                                     1'b0, 1'b0, 5'd0, 32'd0, reg_write_wb, fp_reg_write_wb, rd_wb, rd_wb_data);
+            rs1x_execute_q <= forward(is_branch_decode, 1'b0, rs1_decode, rs1_data_decode,
+                                      1'b0, 1'b0, 5'd0, 32'd0, reg_write_wb, fp_reg_write_wb, rd_wb, rd_wb_data);
+            {fwd_a_x, fwd_a_f, fwd_b_x, fwd_b_f, fwd_c_f, fwd_d_x, fwd_d_f, fwd_r_x} <= decode_issue ?
+                {fwd_a_x_decode, uses_f_rs1, fwd_b_x_decode, fwd_b_f_decode, uses_f_rs3,
+                 fwd_d_x_decode, fp_store_decode, is_branch_decode} : 8'b0;
+        end
+    end
+
+    assign opa_mux_out_execute = forward(fwd_a_x, fwd_a_f, rs1_execute, opa_execute_q,
+        mem_fwd_x, mem_fwd_f, rd_memstage, mem_fwd_value, reg_write_wb, fp_reg_write_wb, rd_wb, rd_wb_data);
+    assign opb_mux_out_execute = forward(fwd_b_x, fwd_b_f, rs2_execute, opb_execute_q,
+        mem_fwd_x, mem_fwd_f, rd_memstage, mem_fwd_value, reg_write_wb, fp_reg_write_wb, rd_wb, rd_wb_data);
+    assign opc_mux_out_execute = forward(1'b0, fwd_c_f, instruction_execute[31:27], opc_execute_q,
+        mem_fwd_x, mem_fwd_f, rd_memstage, mem_fwd_value, reg_write_wb, fp_reg_write_wb, rd_wb, rd_wb_data);
+    assign op_b_execute = forward(fwd_d_x, fwd_d_f, rs2_execute, opd_execute_q,
+        mem_fwd_x, mem_fwd_f, rd_memstage, mem_fwd_value, reg_write_wb, fp_reg_write_wb, rd_wb, rd_wb_data);
+    assign rs1x_execute = forward(fwd_r_x, 1'b0, rs1_execute, rs1x_execute_q,
+        mem_fwd_x, mem_fwd_f, rd_memstage, mem_fwd_value, reg_write_wb, fp_reg_write_wb, rd_wb, rd_wb_data);
+
+    // Branches compare in EX, on forwarded operands.
+    branch u_branch_execute(
+        .en(fwd_r_x),
+        .op_a(rs1x_execute),
+        .op_b(op_b_execute),
+        .fun3(instruction_execute[14:12]),
+        .result(branch_result_execute)
+    );
+
+    assign alu_in_a = opa_mux_out_execute;
+    assign alu_in_b = opb_mux_out_execute;
+
+    //EXECUTE STAGE
+    execute u_executestage(
+        .a_i(alu_in_a),
+        .b_i(alu_in_b),
+        .pc_address(pre_pc_addr_execute),
+        .alu_control(alu_control_execute),
+        .alu_res_out(alu_res_out_execute),
+        .next_sel_address(next_sel_address_execute)
+    );
+
+    //EXECUTE STAGE PIPELINE
+    execute_pipe u_executepipeline(
+        .clk(clk),
+        .rst(rst),
+        .stall(memory_wait),
+        .bubble(!execute_valid || fp_wait || xif_wait),
+        .load_in(load_execute),
+        .store_in(store_execute),
+        .opb_datain(csr_execute ? csr_operand_execute : op_b_execute),
+        .alu_res(execute_result),
+        .mem_reg_in(mem_to_reg_execute),
+        .next_sel_addr(next_sel_address_execute),
+        .pre_address_in(pre_pc_addr_execute),
+        .instruction_in(instruction_execute),
+        .reg_write_in((reg_write_execute && (!fp_convert_execute || !fp_illegal_rm)) ||
+                      (xif_execute && xif_we)),
+        .fp_reg_write_in(fp_reg_write_execute && (!fp_arith_execute || !fp_illegal_rm)),
+        .reg_write_out(reg_write_memstage),
+        .fp_reg_write_out(fp_reg_write_memstage),
+        .load_out(load_memstage),
+        .store_out(store_memstage),
+        .opb_dataout(op_b_memstage),
+        .alu_res_out(alu_res_out_memstage),
+        .mem_reg_out(mem_to_reg_memstage),
+        .next_sel_address(next_sel_address_memstage),
+        .pre_address_out(pre_pc_addr_memstage),
+        .instruction_out(instruction_memstage)
+    );
+
+    //MEMORY STAGE
+    memory_stage u_memorystage(
+        .rst(rst),
+        .load(load_memstage),
+        .store(store_memstage),
+        .op_b(op_b_memstage),
+        .instruction(instruction_memstage),
+        .alu_out_address(alu_res_out_memstage),
+        .wrap_load_in(load_data_in),
+        .mask(mask),
+        .data_valid(data_mem_valid),
+        .we_re(mem_we_re_core),
+        .request(),
+        .store_data_out(store_data_core),
+        .wrap_load_out(wrap_load_memstage)
+    );
+
+    // Data port: the MEM stage, or a coprocessor request in the cycle it is accepted
+    // (the memory takes address, data and mask with the request, as for the MEM stage).
+    assign rd_memstage = instruction_memstage[11:7];
+    assign alu_out_address = xif_mem_fire ? xif_mem_addr : alu_res_out_memstage;
+    assign mask_singal = xif_mem_fire ? xif_mem_be : mask;
+    assign data_mem_we_re = xif_mem_fire ? xif_mem_we : mem_we_re_core;
+    assign store_data_out = xif_mem_fire ? xif_mem_wdata : store_data_core;
+    assign load_signal = (memstage_valid && load_memstage) || (xif_mem_fire && !xif_mem_we);
+
+    //MEMORY STAGE PIPELINE
+    memory_pipe u_memstagepipeline(
+        .clk(clk),
+        .rst(rst),
+        .mem_reg_in(mem_to_reg_memstage),
+        .wrap_load_in(wrap_load_memstage),
+        .alu_res(alu_res_out_memstage),
+        .next_sel_addr(next_sel_address_memstage),
+        .pre_address_in(pre_pc_addr_memstage),
+        .instruction_in(instruction_memstage),
+        .reg_write_in(memstage_valid && !memory_wait && reg_write_memstage),
+        .fp_reg_write_in(memstage_valid && !memory_wait && fp_reg_write_memstage),
+        .reg_write_out(reg_write_wb),
+        .fp_reg_write_out(fp_reg_write_wb),
+        .alu_res_out(alu_res_out_wb),
+        .mem_reg_out(mem_to_reg_wb),
+        .next_sel_address(next_sel_address_wb),
+        .instruction_out(instruction_wb),
+        .pre_address_out(pre_pc_addr_wb),
+        .wrap_load_out(wrap_load_wb)
+    );
+
+    //WRITE BACK STAGE
+    write_back u_wbstage(
+        .mem_to_reg(mem_to_reg_wb),
+        .alu_out(alu_res_out_wb),
+        .data_mem_out(wrap_load_wb),
+        .next_sel_address(next_sel_address_wb),
+        .rd_sel_mux_out(rd_wb_data)
+    );
+endmodule

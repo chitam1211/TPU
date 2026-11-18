@@ -10,8 +10,13 @@ Each case is checked two ways:
 Usage (WSL, from kltn/):
   python3 scripts/run_matrix_regress.py --record          # current design -> golden (baseline)
   python3 scripts/run_matrix_regress.py                   # compare with the golden
-  python3 scripts/run_matrix_regress.py --dut core_matrix_xif --core uut.u_core --extra 'rtl/xif/*' --tag xif
+  python3 scripts/run_matrix_regress.py --xif             # CV-X-IF version (core_matrix_xif), tag "xif"
 Results: reports/matrix_regress/results_<tag>.csv, logs in sim/build/matrix_regress/<tag>/.
+
+--xif builds rtl/core_if_xif (core with the XIF port, forwarding pipeline), the adapter, the files of
+rtl/matrix_if_xif in place of the ones of the same name in rtl/matrix_if, and
+rtl/core_matrix_xif/core_matrix_xif.sv, with tb/xif/xif_checker.sv on the bus; a case also fails on any
+protocol violation (XIF_CHECK lines in its log).
 """
 import argparse
 import csv
@@ -25,11 +30,22 @@ ROOT = Path(__file__).resolve().parents[1]
 GOLDEN = ROOT / "tb" / "matrix" / "golden"
 
 
-def sources(extra):
+def sources(extra, xif=False):
+    tb = [str(ROOT / "tb/matrix/tb_matrix_regress.sv")]
+    if xif:
+        core = [str(ROOT / "rtl/core_if_xif/cvxif_pkg.sv")]
+        core += [p for p in sorted(glob.glob(str(ROOT / "rtl/core_if_xif/*.v"))) if not p.endswith("Microprocessor.v")]
+        replaced = {Path(p).name: p for p in glob.glob(str(ROOT / "rtl/matrix_if_xif/*.sv"))}
+        mx = [str(ROOT / "rtl/matrix_if/fp32_fma_pkg.sv")]
+        mx += [replaced.get(Path(p).name, p) for p in sorted(glob.glob(str(ROOT / "rtl/matrix_if/*.sv")))
+               if not p.endswith("fp32_fma_pkg.sv")]
+        top = [str(ROOT / "rtl/core_if_xif/matrix_xif_adapter.sv"), str(ROOT / "rtl/core_matrix_xif/core_matrix_xif.sv"),
+               str(ROOT / "tb/xif/xif_checker.sv")]
+        return core + mx + top + extra + tb
     core = [p for p in sorted(glob.glob(str(ROOT / "rtl/core_if/*.v"))) if not p.endswith("Microprocessor.v")]
     mx = [str(ROOT / "rtl/matrix_if/fp32_fma_pkg.sv")]
     mx += [p for p in sorted(glob.glob(str(ROOT / "rtl/matrix_if/*.sv"))) if not p.endswith("fp32_fma_pkg.sv")]
-    return core + mx + [str(ROOT / "rtl/matrix_if/core_matrix.v")] + extra + [str(ROOT / "tb/matrix/tb_matrix_regress.sv")]
+    return core + mx + [str(ROOT / "rtl/matrix_if/core_matrix.v")] + extra + tb
 
 
 def parse(log):
@@ -70,7 +86,11 @@ def main():
     ap.add_argument("--tag", default=None, help="result name (default: the DUT name)")
     ap.add_argument("--record", action="store_true", help="write the golden from this run")
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--xif", action="store_true", help="CV-X-IF version: --dut core_matrix_xif --core uut.u_core")
     a = ap.parse_args()
+    if a.xif:
+        a.dut, a.core = "core_matrix_xif", a.core or "uut.u_core"
+        a.tag = a.tag or "xif"
     tag = a.tag or a.dut
     work = ROOT / "sim" / "build" / "matrix_regress" / tag
     shutil.rmtree(work, ignore_errors=True)
@@ -80,8 +100,9 @@ def main():
                     "--seed", str(a.seed)], check=True, stdout=subprocess.DEVNULL)
     sim = work / "tb.out"
     extra = [str(Path(p).resolve()) for e in a.extra for p in sorted(glob.glob(str(ROOT / e) if not Path(e).is_absolute() else e))]
-    comp = subprocess.run(["iverilog", "-g2012", "-Wno-timescale", f"-DDUT={a.dut}"] + ([f"-DCORE={a.core}"] if a.core else []) + ["-s", "tb_matrix_regress",
-                           "-o", str(sim)] + sources(extra), capture_output=True, text=True)
+    comp = subprocess.run(["iverilog", "-g2012", "-Wno-timescale", f"-DDUT={a.dut}"] + ([f"-DCORE={a.core}"] if a.core else [])
+                          + (["-DXIF_CHECKER"] if a.xif else []) + ["-s", "tb_matrix_regress",
+                           "-o", str(sim)] + sources(extra, a.xif), capture_output=True, text=True)
     noise = ("constant selects", "unique/unique0", "Padding", "expects", "sorry: ")
     msgs = [l for l in (comp.stdout + comp.stderr).splitlines() if not any(n in l for n in noise)]
     if comp.returncode:
@@ -97,6 +118,11 @@ def main():
         (case / "sim.log").write_text(run.stdout + run.stderr)
         state, retire, done = parse(run.stdout)
         status, notes = "PASS", []
+        xif_errors = [l for l in run.stdout.splitlines()
+                      if l.startswith(("XIF_CHECK ", "XIF_CHECK_ERRORS")) and not l.startswith("XIF_CHECK summary")]
+        if xif_errors:
+            status = "FAIL"
+            notes.append(f"XIF protocol: {xif_errors[0]}")
         if done is None:
             status = "FAIL"
             notes.append("no MATRIX_REGRESS_DONE: " + ((run.stdout + run.stderr).strip().splitlines() or ["?"])[-1])
