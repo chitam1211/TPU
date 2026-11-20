@@ -13,6 +13,8 @@ Usage (WSL, from kltn/):
   python3 scripts/run_act4_netlist.py                    # one ELF per instruction (the -00 file), 26 runs
   python3 scripts/run_act4_netlist.py F-fadd.s-01 F-flw-00
   python3 scripts/run_act4_netlist.py all                # all 119 ELFs: 80 F + 39 I (slow)
+  python3 scripts/run_act4_netlist.py --core_if_xif      # netlist of rtl/core_if_xif (made with
+      run_vivado_kv260.sh <ns> netlist --core_if_xif), cycles compared with an RTL run of core_if_xif
   python3 scripts/run_act4_netlist.py all --netlist build/vivado/kltn_gui/netlist/core_funcsim_routed.v \
       --tag gui_default_routed --work sim/build/act4_netlist_2
       a netlist exported by hand (Vivado GUI): name the results, and use a second work directory
@@ -24,6 +26,7 @@ and is "unknown" for a netlist from outside build/vivado/runs. xsim logs in sim/
 import argparse
 import csv
 import glob
+import json
 import re
 import subprocess
 import sys
@@ -39,10 +42,18 @@ REPORT = ROOT / "reports" / "act4_netlist"
 LEGACY_NETLIST = ROOT / "build" / "vivado" / "kv260_core_if" / "netlist" / "core_funcsim.v"
 
 
-def newest_netlist():
-    """Netlist of the newest `netlist` run (build/vivado/runs/<time>_netlist_<clock>ns/), else the old path."""
-    runs = sorted(glob.glob(str(ROOT / "build" / "vivado" / "runs" / "*_netlist_*" / "netlist" / "core_funcsim.v")))
-    return Path(runs[-1]) if runs else LEGACY_NETLIST
+XIF_CORE = "core_if_xif"
+
+
+def newest_netlist(core="core_if"):
+    """Netlist of the newest `netlist` run of `core` (build/vivado/runs/<time>_netlist_<clock>ns/,
+    with _core_if_xif in the name for rtl/core_if_xif), else the old path (core_if only)."""
+    runs = sorted(p for p in glob.glob(str(ROOT / "build" / "vivado" / "runs" / "*_netlist_*" / "netlist" /
+                                           "core_funcsim.v"))
+                  if (f"_{XIF_CORE}" in Path(p).parent.parent.name) == (core == XIF_CORE))
+    if runs:
+        return Path(runs[-1])
+    return LEGACY_NETLIST if core == "core_if" else ROOT / "build" / "vivado" / "runs" / f"<none for {core}>"
 
 
 def synth_tag(netlist):
@@ -60,7 +71,6 @@ def synth_tag(netlist):
     return tag + ("_retiming" if "-retiming" in opts else "")
 
 
-NETLIST = newest_netlist()
 TB = ROOT / "tb" / "core_if" / "tb_act4_unified.v"
 DEFAULT_VIVADO_BIN = Path("/mnt/d/Xilinx/Vivado/2022.2/bin")
 SNAPSHOT = "tb_act4_netlist"
@@ -85,14 +95,28 @@ def bat(vivado_bin, tool, args, log, timeout=None):
     return r.returncode, (r.stdout + r.stderr).replace("\r", "")
 
 
-def rtl_cycles():
-    """Cycles of the newest full RTL run (reports/act4_runs/*/results.csv), by test name."""
-    runs = sorted(p for p in glob.glob(str(ROOT / "reports" / "act4_runs" / "*" / "results.csv"))
-                  if "noflags" not in p)
-    if not runs:
-        return {}, None
-    with open(runs[-1], newline="") as f:
-        return {r["test"]: r["cycles"] for r in csv.DictReader(f) if r["status"] == "PASS"}, runs[-1]
+def run_core(results_csv):
+    """RTL folder name an ACT4 RTL run used: rtl_dir in its summary.json; for runs made before
+    that field existed, core_if_xif if the folder name mentions xif, else core_if."""
+    run = Path(results_csv).parent
+    try:
+        return Path(json.loads((run / "summary.json").read_text())["rtl_dir"]).name
+    except (OSError, KeyError, ValueError):
+        return XIF_CORE if "xif" in run.name else "core_if"
+
+
+def rtl_cycles(core="core_if"):
+    """Cycles by test name of an RTL run of `core` (reports/act4_runs/*/results.csv): the newest
+    of the runs that passed the most ELFs, so a later run of a few ELFs does not replace a full one."""
+    best, best_path = {}, None
+    for p in sorted(glob.glob(str(ROOT / "reports" / "act4_runs" / "*" / "results.csv"))):
+        if "noflags" in p or run_core(p) != core:
+            continue
+        with open(p, newline="") as f:
+            cycles = {r["test"]: r["cycles"] for r in csv.DictReader(f) if r["status"] == "PASS"}
+        if len(cycles) >= len(best):
+            best, best_path = cycles, p
+    return best, best_path
 
 
 def default_tests():
@@ -109,7 +133,7 @@ def main():
     global WORK
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("tests", nargs="*", help="ELF stems (default: one per instruction), or all")
-    ap.add_argument("--netlist", type=Path, default=NETLIST)
+    ap.add_argument("--netlist", type=Path, help="netlist file (default: newest netlist run of the core)")
     ap.add_argument("--vivado-bin", type=Path, default=DEFAULT_VIVADO_BIN)
     ap.add_argument("--act-root", type=Path, default=DEFAULT_ACT)
     ap.add_argument("--toolchain-bin", type=Path, default=DEFAULT_TOOLCHAIN)
@@ -117,15 +141,20 @@ def main():
     ap.add_argument("--timeout", type=int, default=3600, help="seconds per ELF")
     ap.add_argument("--tag", help="results file name results_<tag>.csv (default: synthesis configuration)")
     ap.add_argument("--work", type=Path, help=f"simulation work directory (default {WORK.relative_to(ROOT)})")
+    ap.add_argument("--core_if_xif", action="store_true",
+                    help="netlist of rtl/core_if_xif (run_vivado_kv260.sh <ns> netlist --core_if_xif), "
+                         "cycles compared with an RTL run of rtl/core_if_xif; results tag ends in _core_if_xif")
     a = ap.parse_args()
+    core = XIF_CORE if a.core_if_xif else "core_if"
     if a.work:
         WORK = a.work.resolve()
-    a.netlist = a.netlist.resolve()
-    tag = a.tag or synth_tag(a.netlist)
+    a.netlist = (a.netlist or newest_netlist(core)).resolve()
+    tag = (a.tag or synth_tag(a.netlist)) + ("_core_if_xif" if a.core_if_xif and not a.tag else "")
 
     tests = list(IMPLEMENTED_TESTS) if a.tests == ["all"] else (a.tests or default_tests())
     if not a.netlist.exists():
-        sys.exit(f"Missing netlist {a.netlist}\nCreate it with:  bash scripts/run_vivado_kv260.sh 10 netlist")
+        sys.exit(f"Missing netlist {a.netlist}\nCreate it with:  bash scripts/run_vivado_kv260.sh 10 netlist"
+                 + (" --core_if_xif" if a.core_if_xif else ""))
     glbl = a.vivado_bin.parent / "data" / "verilog" / "src" / "glbl.v"
     for p in (a.vivado_bin / "xvlog.bat", glbl):
         if not p.exists():
@@ -147,9 +176,15 @@ def main():
     code, out = bat(a.vivado_bin, "xelab", ["-L", "unisims_ver", "-s", SNAPSHOT,
                                             "work.tb_act4_unified", "work.glbl"], "xelab.log")
     if code:
-        sys.exit(f"xelab failed ({WORK / 'xelab.log'}):\n" + out[-3000:])
+        # On Windows another process (e.g. antivirus) can hold a generated .c file while xelab
+        # deletes its temp obj folder: the snapshot is built, only the cleanup failed.
+        if "Built simulation snapshot" in out and "Could not remove the obj directory" in out:
+            print("warning : xelab built the snapshot but could not delete its temp obj folder "
+                  "(file held by another process, e.g. antivirus); continuing", flush=True)
+        else:
+            sys.exit(f"xelab failed ({WORK / 'xelab.log'}):\n" + out[-3000:])
 
-    ref, ref_path = rtl_cycles()
+    ref, ref_path = rtl_cycles(core)
     if ref_path:
         print(f"RTL ref : {Path(ref_path).relative_to(ROOT)}")
     rows, fails = [], 0

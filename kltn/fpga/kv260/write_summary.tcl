@@ -28,7 +28,8 @@ proc util_count {util label} {
     return "n/a"
 }
 
-proc write_run_summary {summary_path {note ""}} {
+# io_note: replaces the "Not timed" section (flows that constrain the ports with input/output delays).
+proc write_run_summary {summary_path {note ""} {io_note ""}} {
     set setup [lindex [get_timing_paths -delay_type max -max_paths 1] 0]
     set hold  [lindex [get_timing_paths -delay_type min -max_paths 1] 0]
     set wns [get_property SLACK $setup]
@@ -77,6 +78,11 @@ proc write_run_summary {summary_path {note ""}} {
     set util [report_utilization -return_string]
     puts $f "LUTs: [util_count $util {CLB LUTs}]   FFs: [util_count $util {CLB Registers}]   DSPs: [util_count $util {DSPs}]   BRAM tiles: [util_count $util {Block RAM Tile}]"
     puts $f ""
+    if {$io_note ne ""} {
+        puts $f $io_note
+        close $f
+        return
+    }
     puts $f "== Not timed =="
     puts $f "Chip port <-> boundary flip-flop: [llength [all_inputs]] inputs (incl. clk/rst) and [llength [all_outputs]] outputs have no input/output delay constraint,"
     puts $f "because the logic outside the core is unknown out-of-context. These hops contain no logic (port -> flop or flop -> port),"

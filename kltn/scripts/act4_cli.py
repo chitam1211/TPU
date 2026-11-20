@@ -52,6 +52,8 @@ def main():
     parser.add_argument("--no-flags", action="store_true",
                         help="results only: CSR-free programs (no CSR instruction, no fflags check, "
                              "DYN rounding -> static mode in effect). Default: full test")
+    parser.add_argument("--core_if_xif", action="store_true",
+                        help="test rtl/core_if_xif instead of rtl/core_if (report folder ends in _core_if_xif)")
     args = parser.parse_args()
     if args.cases != "all" and (not args.cases.isdecimal() or int(args.cases) < 1):
         parser.error("--cases must be a positive integer or all")
@@ -92,10 +94,13 @@ def main():
         return 0
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    label = re.sub(r"[^a-z0-9._-]", "_", args.target.lower()) + ("_noflags" if args.no_flags else "")
+    label = (re.sub(r"[^a-z0-9._-]", "_", args.target.lower()) + ("_noflags" if args.no_flags else "")
+             + ("_core_if_xif" if args.core_if_xif else ""))
     report_dir = ROOT / "reports" / "act4_runs" / f"{timestamp}_{label}"
     print(f"{'Logs' if args.brief else 'Explanation and full logs'}: {report_dir}", flush=True)
     command = [sys.executable, str(RUNNER), *selected, "--report-dir", str(report_dir)]
+    if args.core_if_xif:
+        command.append("--core_if_xif")
     if args.no_flags:
         command.append("--no-flags")
     if args.brief:

@@ -14,6 +14,7 @@ Usage (WSL, from kltn/):
   python3 tb/lockstep/run_lockstep.py                       # one ELF per instruction, 26 runs
   python3 tb/lockstep/run_lockstep.py F-fadd.s-00 F-flw-00
   python3 tb/lockstep/run_lockstep.py all                   # all 119 ELFs: 80 F + 39 I (slow)
+  python3 tb/lockstep/run_lockstep.py --core_if_xif          # rtl/core_if_xif and its netlist
   python3 tb/lockstep/run_lockstep.py F-fadd.s-00 --inject-cycle 2000
       self-test: the netlist copy gets one wrong instruction, the run must report a mismatch
   python3 tb/lockstep/run_lockstep.py all --netlist build/vivado/kltn_gui/netlist/core_funcsim_synth.v \
@@ -35,8 +36,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 from run_act4_rtl import DEFAULT_ACT, DEFAULT_TOOLCHAIN, IMPLEMENTED_TESTS, elf_path, symbol_address  # noqa: E402
-from run_act4_netlist import (DEFAULT_VIVADO_BIN, default_tests, newest_netlist, rtl_cycles,  # noqa: E402
-                              synth_tag, win)
+from run_act4_netlist import (DEFAULT_VIVADO_BIN, XIF_CORE, default_tests, newest_netlist,  # noqa: E402
+                              rtl_cycles, synth_tag, win)
 
 HERE = Path(__file__).resolve().parent
 TB = HERE / "tb_lockstep.v"
@@ -82,7 +83,7 @@ def main():
     global WORK
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("tests", nargs="*", help="ELF stems (default: one per instruction), or all")
-    ap.add_argument("--netlist", type=Path, default=newest_netlist())
+    ap.add_argument("--netlist", type=Path, help="netlist file (default: newest netlist run of the core)")
     ap.add_argument("--vivado-bin", type=Path, default=DEFAULT_VIVADO_BIN)
     ap.add_argument("--act-root", type=Path, default=DEFAULT_ACT)
     ap.add_argument("--toolchain-bin", type=Path, default=DEFAULT_TOOLCHAIN)
@@ -93,14 +94,20 @@ def main():
     ap.add_argument("--timeout", type=int, default=3600, help="seconds per ELF")
     ap.add_argument("--tag", help="results file name results_<tag>.csv (default: synthesis configuration)")
     ap.add_argument("--work", type=Path, help=f"simulation work directory (default {WORK.relative_to(ROOT)})")
+    ap.add_argument("--core_if_xif", action="store_true",
+                    help="RTL rtl/core_if_xif against its netlist (run_vivado_kv260.sh <ns> netlist --core_if_xif); "
+                         "results tag ends in _core_if_xif")
     a = ap.parse_args()
+    core = XIF_CORE if a.core_if_xif else "core_if"
+    rtl_dir = ROOT / "rtl" / core
     if a.work:
         WORK = a.work.resolve()
-    a.netlist = a.netlist.resolve()
+    a.netlist = (a.netlist or newest_netlist(core)).resolve()
 
     tests = list(IMPLEMENTED_TESTS) if a.tests == ["all"] else (a.tests or default_tests())
     if not a.netlist.exists():
-        sys.exit(f"Missing netlist {a.netlist}\nCreate it with:  bash scripts/run_vivado_kv260.sh 6.5 netlist")
+        sys.exit(f"Missing netlist {a.netlist}\nCreate it with:  bash scripts/run_vivado_kv260.sh 6.5 netlist"
+                 + (" --core_if_xif" if a.core_if_xif else ""))
     if not (a.vivado_bin / "xvlog.bat").exists():
         sys.exit(f"Missing {a.vivado_bin / 'xvlog.bat'}; pass --vivado-bin <Vivado>/bin")
     objcopy = a.toolchain_bin / "riscv32-unknown-elf-objcopy"
@@ -110,14 +117,15 @@ def main():
 
     renamed = WORK / "core_netlist_renamed.v"
     n_mod, n_inst = rename_netlist(a.netlist, renamed)
-    tag = a.tag or synth_tag(a.netlist)
+    tag = (a.tag or synth_tag(a.netlist)) + ("_core_if_xif" if a.core_if_xif and not a.tag else "")
     print(f"netlist : {a.netlist.relative_to(ROOT) if a.netlist.is_relative_to(ROOT) else a.netlist}"
           f"  (written {time.strftime('%Y-%m-%d %H:%M', time.localtime(a.netlist.stat().st_mtime))},"
           f" synthesis {synth_tag(a.netlist)}, results tag {tag})")
+    print(f"rtl     : {rtl_dir.relative_to(ROOT)}")
     print(f"work    : {WORK}")
     print(f"rename  : {n_mod} modules, {n_inst} instances -> {PREFIX}*")
     # The netlist carries its own glbl (guarded by `ifndef GLBL), so glbl.v is not added.
-    rtl_sources = sorted(RTL.glob("*.v"))
+    rtl_sources = sorted(rtl_dir.glob("*.v"))
     print(f"compile : xvlog ({len(rtl_sources)} RTL files + netlist + tb) + xelab -L unisims_ver ...", flush=True)
     code, out = bat(a.vivado_bin, "xvlog", [*(win(p) for p in rtl_sources), win(renamed), win(TB)], "xvlog.log")
     if code:
@@ -126,9 +134,15 @@ def main():
     code, out = bat(a.vivado_bin, "xelab", ["--timescale", "1ns/1ps", "-L", "unisims_ver", "-s", SNAPSHOT,
                                             "work.tb_lockstep", "work.glbl"], "xelab.log")
     if code:
-        sys.exit(f"xelab failed ({WORK / 'xelab.log'}):\n" + out[-3000:])
+        # On Windows another process (e.g. antivirus) can hold a generated .c file while xelab
+        # deletes its temp obj folder: the snapshot is built, only the cleanup failed.
+        if "Built simulation snapshot" in out and "Could not remove the obj directory" in out:
+            print("warning : xelab built the snapshot but could not delete its temp obj folder "
+                  "(file held by another process, e.g. antivirus); continuing", flush=True)
+        else:
+            sys.exit(f"xelab failed ({WORK / 'xelab.log'}):\n" + out[-3000:])
 
-    ref, ref_path = rtl_cycles()
+    ref, ref_path = rtl_cycles(core)
     if ref_path:
         print(f"RTL ref : {Path(ref_path).relative_to(ROOT)} (iverilog cycles, for comparison)")
     inject = a.inject_cycle is not None

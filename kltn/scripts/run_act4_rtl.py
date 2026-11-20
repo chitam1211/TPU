@@ -351,7 +351,12 @@ def main():
     parser.add_argument("--no-flags", action="store_true",
                         help="results only: run a CSR-free version of each program (no CSR instruction, "
                              "no fflags check, DYN rounding replaced by the static mode in effect)")
+    parser.add_argument("--rtl", type=Path, default=RTL,
+                        help="directory of the core RTL (*.v, module core); default rtl/core_if")
+    parser.add_argument("--core_if_xif", action="store_true", help="short for --rtl rtl/core_if_xif")
     args = parser.parse_args()
+    if args.core_if_xif:
+        args.rtl = ROOT / "rtl" / "core_if_xif"
 
     if args.cases != "all" and (not args.cases.isdecimal() or int(args.cases) < 1):
         parser.error("--cases must be a positive integer or all")
@@ -376,8 +381,14 @@ def main():
     BUILD.mkdir(parents=True, exist_ok=True)
     report_dir = args.report_dir.resolve()
     report_dir.mkdir(parents=True, exist_ok=True)
-    simulator = BUILD / "tb_act4_unified.out"
-    rtl_sources = sorted(RTL.glob("*.v"))
+    rtl_dir = args.rtl.resolve()
+    # One simulator file per RTL directory, so runs on two cores can go at the same time.
+    simulator = BUILD / ("tb_act4_unified.out" if rtl_dir == RTL.resolve()
+                         else f"tb_act4_unified_{rtl_dir.name}.out")
+    rtl_sources = sorted(rtl_dir.glob("*.v"))
+    if not rtl_sources:
+        raise RuntimeError(f"No *.v files in {rtl_dir}")
+    print(f"RTL: {rtl_dir}", flush=True)
     compile_output = run(
         [iverilog, "-g2012", "-Wall", "-Wno-timescale", "-s", "tb_act4_unified",
          "-o", simulator, *rtl_sources, TB]
@@ -458,6 +469,8 @@ def main():
         "explain": args.explain, "no_flags": args.no_flags,
         "act_root": str(args.act_root), "act_commit": provenance.stdout.strip(),
         "elf_sha256": elf_hashes,
+        # Read by run_act4_netlist.py / run_lockstep.py to compare with a run of the same core.
+        "rtl_dir": rtl_dir.relative_to(ROOT).as_posix() if rtl_dir.is_relative_to(ROOT) else str(rtl_dir),
         "rtl_sha256": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in rtl_sources},
         "scope": "Selected ACT4 ELFs on RTL; not full RV32IF certification." +
                  (" Results only (--no-flags): CSR-free programs, fflags not checked, "

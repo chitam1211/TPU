@@ -2,6 +2,7 @@
 # run overwrites another:
 #   reports/vivado/runs/<yyyyMMdd_HHmmss>_<mode>_<clock>ns/  reports, Vivado logs, run_info.txt
 #   build/vivado/runs/<same name>/                            checkpoints, netlist, Vivado temp files
+# -core_if_xif: synthesize rtl/core_if_xif (default rtl/core_if); the run name gets _core_if_xif.
 # Mode: full (synthesis + implementation, default), synth (synthesis only),
 #       netlist (synthesize `core` and write the functional netlist for xsim),
 #       sweep (synthesis only, once per strategy in -Configs, each in its own Vivado session),
@@ -13,6 +14,11 @@
 #       top<n>, or synthesis configurations; -Jobs: Vivado runs in parallel (each needs ~4.5 GB).
 # -Resume (fullsweep): an earlier fullsweep run folder name (e.g. 20261024_012046_fullsweep_6.5ns)
 #       or its sweep.xpr; completed runs of that project are reused, the rest run again.
+# -Ooc core|coproc|core_matrix (modes full, synth): CV-X-IF design out of context with port delays
+#       from fpga/kv260/ooc_budget.tcl (fpga/kv260/implement_ooc_xif.tcl); the run name gets _ooc_<design>.
+#       core = Core.v with XIF = 1, coproc = matrix_xif_coproc, core_matrix = core_matrix_xif.
+# -FromRun <run folder name> (with -Ooc): start from build/vivado/runs/<run>/post_synth.dcp
+#       instead of synthesizing (the RTL must not have changed since that run).
 param(
     [Parameter(Position=0)] [double]$ClockNs = 10.0,
     [Parameter(Position=1)] [ValidateSet("full", "synth", "netlist", "sweep", "fullsweep")] [string]$Mode = "full",
@@ -21,7 +27,10 @@ param(
     [string[]]$Impl = @(),
     [string[]]$Base = @("auto"),
     [int]$Jobs = 2,
-    [string]$Resume = ""
+    [string]$Resume = "",
+    [switch]$core_if_xif,    # synthesize rtl/core_if_xif instead of rtl/core_if (run name ends in _core_if_xif)
+    [string]$Ooc = "",       # core, coproc or core_matrix: implement_ooc_xif.tcl (see above)
+    [string]$FromRun = ""    # -Ooc only: earlier run folder name; its post_synth.dcp is reused (no synthesis)
 )
 # Every synth_design directive Vivado 2022.2 accepts (list_property_value
 # STEPS.SYNTH_DESIGN.ARGS.DIRECTIVE: 12 values; help synth_design describes the first 10),
@@ -57,12 +66,30 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $kltnRoot = Split-Path -Parent $scriptDir
 $tclName = @{ sweep = "synth_sweep.tcl"; fullsweep = "full_sweep.tcl" }[$Mode]
 if (-not $tclName) { $tclName = "implement_core_if.tcl" }
+if ($Ooc) {
+    if ($Ooc -notin @("core", "coproc", "core_matrix")) { throw "-Ooc takes core, coproc or core_matrix, got '$Ooc'" }
+    if ($Mode -notin @("full", "synth")) { throw "-Ooc runs in mode full or synth, not $Mode" }
+    $tclName = "implement_ooc_xif.tcl"
+}
+$env:KLTN_OOC = $Ooc   # read by implement_ooc_xif.tcl
+$env:KLTN_OOC_DCP = ""
+if ($FromRun) {
+    if (-not $Ooc) { throw "-FromRun needs -Ooc" }
+    $fromDcp = Join-Path $kltnRoot "build\vivado\runs\$(Split-Path -Leaf $FromRun)\post_synth.dcp"
+    if (-not (Test-Path -LiteralPath $fromDcp)) { throw "-FromRun: no checkpoint $fromDcp" }
+    if ((Split-Path -Leaf $FromRun) -notmatch "_ooc_${Ooc}(_\d+)?$") { throw "-FromRun $FromRun is not a run of -Ooc $Ooc" }
+    $env:KLTN_OOC_DCP = $fromDcp   # read by implement_ooc_xif.tcl
+}
 $tclScript = Join-Path $kltnRoot "fpga\kv260\$tclName"
 if (-not (Test-Path -LiteralPath $VivadoBat)) { throw "Vivado launcher not found: $VivadoBat" }
 if (-not (Test-Path -LiteralPath $tclScript)) { throw "Vivado Tcl script not found: $tclScript" }
 
 $clockArg = $ClockNs.ToString([System.Globalization.CultureInfo]::InvariantCulture)
+$coreName = if ($core_if_xif) { "core_if_xif" } else { "core_if" }
+$env:KLTN_CORE = $coreName   # read by the Tcl scripts
 $baseName = "{0}_{1}_{2}ns" -f (Get-Date -Format "yyyyMMdd_HHmmss"), $Mode, $clockArg
+if ($core_if_xif) { $baseName += "_core_if_xif" }
+if ($Ooc) { $baseName += "_ooc_$Ooc"; $coreName = "core_if_xif + matrix_if(_xif), ooc design $Ooc" }
 # Two runs started in the same second with the same mode and clock get _2, _3, ...
 $runName = $baseName
 for ($n = 2; Test-Path -LiteralPath (Join-Path $kltnRoot "reports\vivado\runs\$runName"); $n++) {
@@ -86,9 +113,10 @@ if ($implList.Count -eq 0) { $implList = $DefaultFullImpl }
 
 # What was built: mode, clock, strategies, and the RTL version (git commit + uncommitted files).
 $started = Get-Date
-$info = @("mode        : $Mode", "clock       : $clockArg ns", "started     : $($started.ToString('yyyy-MM-dd HH:mm:ss'))",
+$info = @("mode        : $Mode", "rtl         : rtl/$coreName", "clock       : $clockArg ns", "started     : $($started.ToString('yyyy-MM-dd HH:mm:ss'))",
           "tcl         : $tclScript", "vivado      : $VivadoBat", "reports+log : $reportDir", "build       : $runDir")
 if ($Mode -eq "sweep") { $info += "configs     : $($list -join ', ')" }
+if ($env:KLTN_OOC_DCP) { $info += "synthesis   : reused $env:KLTN_OOC_DCP" }
 if ($Mode -eq "fullsweep") {
     $info += "synthesis   : $($list -join ', ')"
     $info += "impl        : $($implList -join ', ')"
@@ -203,7 +231,8 @@ if ($status -like "FAILED*") { throw "$status`nRun folder: $reportDir" }
 Write-Host ""
 if ($Mode -eq "netlist") {
     Write-Host "Netlist: $summary"
-    Write-Host "Simulate it (WSL): python3 scripts/run_act4_netlist.py   (uses the newest netlist run)"
+    $flag = if ($core_if_xif) { " --core_if_xif" } else { "" }
+    Write-Host "Simulate it (WSL): python3 scripts/run_act4_netlist.py$flag   (uses the newest netlist run of rtl/$coreName)"
 } else {
     Get-Content -LiteralPath $summary
 }

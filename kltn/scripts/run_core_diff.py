@@ -103,14 +103,23 @@ def main():
     ap.add_argument("--ref", default="af9561e",
                     help="git revision of the reference rtl/core_if (default: last core without forwarding)")
     ap.add_argument("--ref-dir", type=Path, help="reference RTL directory instead of --ref")
+    ap.add_argument("--rtl", type=Path, default=ROOT / "rtl" / "core_if",
+                    help="RTL directory under test (default rtl/core_if)")
+    ap.add_argument("--core_if_xif", action="store_true",
+                    help="test rtl/core_if_xif against rtl/core_if (short for --rtl rtl/core_if_xif "
+                         "--ref-dir rtl/core_if, unless --ref or --ref-dir is given)")
     ap.add_argument("--jobs", type=int, default=8)
     a = ap.parse_args()
+    if a.core_if_xif:
+        a.rtl = ROOT / "rtl" / "core_if_xif"
+        if a.ref_dir is None and not any(x == "--ref" or x.startswith("--ref=") for x in sys.argv[1:]):
+            a.ref_dir = ROOT / "rtl" / "core_if"
 
     shutil.rmtree(WORK / "programs", ignore_errors=True)
     WORK.mkdir(parents=True, exist_ok=True)
     ref_dir = a.ref_dir.resolve() if a.ref_dir else ref_rtl(a.ref)
     compile_core(ref_dir, WORK / "ref.out")
-    compile_core(ROOT / "rtl" / "core_if", WORK / "new.out")
+    compile_core(a.rtl.resolve(), WORK / "new.out")
 
     seeds = a.seeds or list(range(a.first_seed, a.first_seed + a.programs))
     with ThreadPoolExecutor(a.jobs) as pool:

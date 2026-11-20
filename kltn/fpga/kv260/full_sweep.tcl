@@ -23,7 +23,11 @@
 
 set script_dir [file dirname [file normalize [info script]]]
 set kltn_root  [file normalize [file join $script_dir ../..]]
-set rtl_dir    [file join $kltn_root rtl core_if]
+# RTL folder: rtl/core_if, or rtl/$KLTN_CORE (run_vivado_kv260.ps1 -core_if_xif sets core_if_xif).
+set core_name core_if
+if {[info exists ::env(KLTN_CORE)] && $::env(KLTN_CORE) ne ""} { set core_name $::env(KLTN_CORE) }
+set rtl_dir    [file join $kltn_root rtl $core_name]
+puts "INFO: RTL folder: $rtl_dir"
 set part_name  "xck26-sfvc784-2LV-c"
 set top_name   "core_timing_wrap"
 

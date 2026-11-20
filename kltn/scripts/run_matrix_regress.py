@@ -39,8 +39,8 @@ def sources(extra, xif=False):
         mx = [str(ROOT / "rtl/matrix_if/fp32_fma_pkg.sv")]
         mx += [replaced.get(Path(p).name, p) for p in sorted(glob.glob(str(ROOT / "rtl/matrix_if/*.sv")))
                if not p.endswith("fp32_fma_pkg.sv")]
-        top = [str(ROOT / "rtl/core_if_xif/matrix_xif_adapter.sv"), str(ROOT / "rtl/core_matrix_xif/core_matrix_xif.sv"),
-               str(ROOT / "tb/xif/xif_checker.sv")]
+        top = [str(ROOT / "tb/xif/xif_checker.sv"), str(ROOT / "rtl/core_if_xif/matrix_xif_adapter.sv"),
+               str(ROOT / "rtl/core_matrix_xif/matrix_xif_coproc.sv"), str(ROOT / "rtl/core_matrix_xif/core_matrix_xif.sv")]
         return core + mx + top + extra + tb
     core = [p for p in sorted(glob.glob(str(ROOT / "rtl/core_if/*.v"))) if not p.endswith("Microprocessor.v")]
     mx = [str(ROOT / "rtl/matrix_if/fp32_fma_pkg.sv")]

@@ -1,6 +1,7 @@
 # Ghép core RV32IF với core ma trận qua CORE-V eXtension Interface (CV-X-IF)
 
-Bản thiết kế, chưa sửa RTL. Nhánh `xif`, tạo từ `RV32IF` tại `af9561e` (31/10/2026).
+Đang làm, trên nhánh `RV32IF`. Core gốc là bản có forwarding (`b165479`). Bước 1 (package,
+adapter, testbench có checker) đã xong ngày 01/11/2026, xem mục 10.
 
 ## 1. Mục tiêu và phạm vi
 
@@ -13,7 +14,9 @@ Trong phạm vi:
 - Core in-order 32 bit, một hart, **chạy chặn**: lệnh ma trận đứng ở EX cho đến khi có kết quả,
   như hiện nay. Mỗi lúc chỉ có một lệnh ma trận đang thực hiện.
 - Các giao tiếp con: issue, register, commit, result, memory request/response, memory result.
-- `matrix_core_v2` và các khối bên trong **không sửa**. Mọi chuyển đổi nằm trong một adapter.
+- Mọi chuyển đổi nằm trong một adapter. `matrix_core_v2` chỉ thêm hai cổng bộ nhớ
+  (`mem_ready`, `mem_last`, mục 9 câu 2 và 3), làm trên bản sao cục bộ `rtl/matrix_if_xif`
+  cho tới khi bạn cùng nhóm đồng ý.
 
 Ngoài phạm vi (giữ như hiện nay, ghi rõ ở mục 9):
 
@@ -99,7 +102,7 @@ Hướng ghi theo phía core: "ra" là core → coprocessor.
 
 | Giao tiếp | Tín hiệu / trường | Hướng | Phía core (nguồn / đích) | Phía adapter |
 |---|---|---|---|---|
-| issue | `issue_valid` | ra | `execute_valid && opcode == 0x2B && !memory_wait && !đã phát` | |
+| issue | `issue_valid` | ra | `execute_valid && opcode == 0x2B && !xif_issued` (không cần chờ MEM: cổng bộ nhớ đã có `mem_ready`) | |
 | | `issue_ready` | vào | | `state == IDLE` |
 | | `issue_req.instr` | ra | `instruction_execute` | chốt vào `insn_q` |
 | | `issue_req.id` | ra | bộ đếm 3 bit, tăng sau mỗi lần phát | chốt vào `id_q` |
@@ -118,10 +121,10 @@ Hướng ghi theo phía core: "ra" là core → coprocessor.
 | | `result.data`, `rd`, `we` | vào | đi vào đường WB như `matrix_wb_value` hiện nay | `matrix_wb_data`, `matrix_wb_rd`, `matrix_wb_we` |
 | | `result.id`, `exc`, `err`, `dbg` | vào | không dùng | `id_q`, `0`, `0`, `0` |
 | mem | `mem_valid` | vào | chiếm cổng dữ liệu (thay cho mux hiện nay) | `matrix_mem_request` |
-| | `mem_ready` | ra | `1` khi MEM trống; luôn đúng khi lệnh ma trận ở EX | |
+| | `mem_ready` | ra | `!memory_op && !xif_mem_pending`: MEM không có truy cập và không còn yêu cầu XIF đang chờ | `matrix_mem_ready` (cổng mới) |
 | | `mem_req.addr`, `we`, `be`, `wdata` | vào | `alu_out_address`, `data_mem_we_re`, `mask`, `store_data_out` | `matrix_mem_addr/we/wstrb/wdata` |
 | | `mem_req.size`, `mode`, `attr`, `spec` | vào | bỏ qua | `2` (word), `2'b11`, `0`, `0` |
-| | `mem_req.last` | vào | bỏ qua | xem mục 9, câu hỏi 2 |
+| | `mem_req.last` | vào | bỏ qua | `matrix_mem_last` (cổng mới của `matrix_tile_ls`) |
 | | `mem_resp.exc`, `exccode`, `dbg` | ra | `0` | |
 | mem result | `mem_result_valid` | ra | `data_mem_valid` của yêu cầu do coprocessor phát | `matrix_mem_rvalid` |
 | | `mem_result.rdata` | ra | `load_data_in` | `matrix_mem_rdata` |
@@ -133,10 +136,11 @@ Hướng ghi theo phía core: "ra" là core → coprocessor.
 
 - **Phát lệnh:** khi lệnh opcode 0x2B ở EX, `issue_valid = 1`. Do `X_ISSUE_REGISTER_SPLIT = 0`,
   register được gửi cùng lúc, với `rs_valid = 11`.
-- **Hazard ở ID:** core không giải mã lệnh ma trận nữa, nên coi mọi lệnh 0x2B là **đọc cả `rs1`
-  và `rs2`**. Cách này đúng nhưng có thể dừng thêm khi trường `rs` không dùng trùng với một thanh
-  ghi đang chờ ghi. Hồi quy ở mục 8 cho thấy số chu kỳ thêm vào. Nếu muốn giữ đúng số chu kỳ cũ,
-  có thể giữ `mx_uses_rs*` trong core như một "gợi ý" (câu hỏi 4).
+- **Toán hạng:** core không giải mã lệnh ma trận nữa, nên coi mọi lệnh 0x2B là **đọc cả `rs1`
+  và `rs2`**, đúng với spec ("speculatively provide all possible source registers"). Core có
+  forwarding, nên `rs1`, `rs2` đến EX qua đường forwarding như lệnh ALU; chỉ còn trường hợp
+  load-use phải chờ một chu kỳ, và chỉ khi trường `rs` (kể cả trường không dùng) trùng `rd`
+  của lệnh load ngay trước. Câu hỏi 4 đã chốt theo cách này.
 - **Commit:** cùng chu kỳ với issue, `commit_kill = 0`. Lệnh đã ở EX nên mọi lệnh nhánh cũ hơn
   đã xử lý xong, không có gì hủy được nó.
 - **Stall:** `matrix_wait` cũ được thay bằng `xif_wait = lệnh đã accept && !(result_valid && result_ready)`,
@@ -150,14 +154,22 @@ Hướng ghi theo phía core: "ra" là core → coprocessor.
 
 ### 6.2 Phía adapter (`matrix_xif_adapter.sv`)
 
-Máy trạng thái bốn trạng thái:
+Máy trạng thái (`rtl/core_if_xif/matrix_xif_adapter.sv`):
 
 | Trạng thái | Việc | Chuyển |
 |---|---|---|
-| `IDLE` | `issue_ready = 1`; `accept = matrix_supported` (giải mã tổ hợp trên `issue_req.instr`) | issue + accept + commit (kill = 0) → `START` |
+| `IDLE` | `issue_ready = 1`; `accept = matrix_supported` (giải mã tổ hợp trên `issue_req.instr`) | issue + accept + commit cùng chu kỳ → `START` (kill → ở lại `IDLE`); chưa có commit → `WAIT_COMMIT` |
+| `WAIT_COMMIT` | chờ commit của `id` đã chốt (core này không dùng, dành cho CPU khác và testbench) | commit → `START`, hoặc `IDLE` nếu kill |
 | `START` | `matrix_valid = 1` đúng một chu kỳ; `insn`, `rs1`, `rs2` lấy từ thanh ghi chốt | → `BUSY` |
-| `BUSY` | giữ `insn/rs` ổn định; chuyển tiếp `mem_*` | `matrix_done` → nếu `result_ready` thì `IDLE`, nếu không thì `RESULT` |
+| `BUSY` | giữ `insn/rs` ổn định; chuyển tiếp `mem_*` | `matrix_done` → `IDLE` (result đi thẳng, có `result_ready`), `RESULT` (chưa `result_ready`), hoặc `DRAIN` |
+| `DRAIN` | xong, nhưng còn `mem_result` của store chưa về | đủ `mem_result` → `RESULT` |
 | `RESULT` | giữ `result_valid` và `result` cho tới khi `result_ready` | → `IDLE` |
+
+- `register_read` do adapter tính (logic `mx_uses_rs*` chuyển từ core sang); `writeback` chỉ
+  bằng 1 cho `mmovw.x.m` với `rd != 0` (lệnh cấu hình bắt buộc `rd = 0`).
+- Adapter đếm số yêu cầu bộ nhớ chưa có `mem_result` và chỉ trả result khi đếm về 0, vì vậy
+  `mem_result` trễ của store không bao giờ lẫn sang lệnh sau. Với core này `mem_result` về sau
+  một chu kỳ, nên `DRAIN` không xảy ra.
 
 - Chốt `insn/rs` và phát `matrix_valid` một chu kỳ sau issue giải quyết điểm 2 và 3 ở mục 2:
   đầu vào ổn định suốt lệnh, và `matrix_valid` luôn về 0 giữa hai lệnh nên `accept_block` được xóa.
@@ -191,12 +203,14 @@ So với hiện nay, `matrix_valid` đến muộn **một chu kỳ** (do chốt 
 
 | File | Việc |
 |---|---|
-| `rtl/xif/cvxif_pkg.sv` | tham số mục 3, struct cho từng giao tiếp (tên trường theo spec v1.0.0) |
-| `rtl/xif/matrix_xif_adapter.sv` | mục 6.2 |
-| `rtl/core_if/Core.v` | thêm cổng XIF (mục 6.1); bỏ cách phát lệnh ma trận riêng |
-| `rtl/xif/core_matrix_xif.v` | top: `core` + adapter + `matrix_core_v2`, **cùng cổng với `core_matrix.v`** |
-| `tb/xif/xif_checker.sv` | bộ kiểm tra giao thức gắn vào bus XIF (mục 8) |
-| `rtl/matrix_if/core_matrix.v` | giữ lại làm bản đối chứng cho tới khi XIF qua hết kiểm tra, sau đó xóa |
+| `rtl/core_if_xif/cvxif_pkg.sv` | tham số mục 3, struct cho từng giao tiếp (tên trường theo spec v1.0.0) — **đã có** |
+| `rtl/core_if_xif/matrix_xif_adapter.sv` | mục 6.2 — **đã có** |
+| `rtl/core_if_xif/*.v` | bản sao `rtl/core_if` (có forwarding) + cổng XIF (mục 6.1); `rtl/core_if` giữ nguyên làm đối chứng |
+| `rtl/core_if_xif/core_matrix_xif.v` | top: core + adapter + `matrix_core_v2`, **cùng cổng với `core_matrix.v`** |
+| `rtl/matrix_if_xif/matrix_tile_ls.sv`, `matrix_core_v2.sv` | bản sao cục bộ, thêm `mem_ready`/`mem_last`; cùng tên module, biên dịch thay cho file cùng tên ở `rtl/matrix_if`. **Không commit** khi bạn cùng nhóm chưa đồng ý — **đã có** |
+| `tb/xif/xif_checker.sv` | bộ kiểm tra giao thức gắn vào bus XIF (mục 8) — **đã có** |
+| `tb/xif/tb_xif_adapter.sv`, `scripts/run_xif_adapter.py` | test riêng adapter (mục 8) — **đã có** |
+| `rtl/matrix_if/core_matrix.v` | giữ lại làm bản đối chứng cho tới khi XIF qua hết kiểm tra; xóa hay không do bạn cùng nhóm quyết định |
 
 ## 8. Kiểm chứng
 
@@ -230,8 +244,19 @@ cáo, dự kiến tăng khoảng 1 chu kỳ mỗi lệnh.
 3. Mỗi lệnh được accept có **đúng một** result; không có result cho lệnh bị từ chối.
 4. Result không đến trước commit của cùng `id`; `result.id` khớp lệnh đang chờ.
 5. `result.we` khớp `issue_resp.writeback`.
-6. `mem_valid` chỉ xuất hiện khi lệnh hiện tại có `loadstore = 1`; `mem_valid → mem_ready`.
-7. Số `mem_result` bằng số `mem_req` của load.
+6. `mem_valid` chỉ xuất hiện cho lệnh đã accept, đã commit, có `loadstore = 1`.
+7. Mỗi `mem_req` (load lẫn store) có đúng một `mem_result`; result chỉ đến khi đã đủ.
+
+**Test riêng adapter** (`scripts/run_xif_adapter.py`, `tb/xif/tb_xif_adapter.sv`): adapter +
+`matrix_core_v2` (bản `matrix_if_xif`) + một CPU giả + bộ nhớ giả. Mỗi vòng: `msettilem/n/k`,
+`mlae8`, `mlbe8`, `mzero`, `mmacc.w.b`, một `mzero` bị `commit_kill` (không được có tác dụng),
+`msce32`, `mmovw.x.m` (rd = x10 và rd = x0), một mã không hỗ trợ (phải bị từ chối). Kiểm tra C
+trong bộ nhớ và kết quả `mmovw.x.m`. Ngẫu nhiên: `mem_ready`, độ trễ `mem_result` (1–10 chu kỳ),
+`result_ready`, độ trễ commit; vòng 0 để mọi ready = 1 như core thật.
+
+Kết quả 01/11/2026: 5 seed × 40 vòng PASS, checker 0 lỗi. Sáu lỗi cài cố ý đều bị phát hiện:
+bỏ qua `commit_kill`, `tile_ls` bỏ qua `mem_ready`, trả result trước khi đủ `mem_result`,
+`writeback` sai, `result.id` sai, không chờ commit.
 
 **Hồi quy phần vô hướng:** vì `Core.v` có thay đổi, chạy lại ACT4 119 ELF (RTL, netlist) và
 lockstep. Số chu kỳ phải **trùng** kết quả hiện có (`reports/act4_runs/20261031_164609_all`),
@@ -250,7 +275,8 @@ vì core không gắn coprocessor thì hành vi không đổi.
    - (a) thêm một cổng `mem_last` vào `matrix_tile_ls` (khoảng 1 dòng, cần bạn cùng nhóm đồng ý);
    - (b) adapter tự tính từ `mtilem/n/k` và kích thước phần tử (lặp lại logic của tile_ls).
 
-   Core này không dùng `last`, nên nó chỉ ảnh hưởng tính đúng chuẩn. Đề xuất (a).
+   Core này không dùng `last`, nên nó chỉ ảnh hưởng tính đúng chuẩn. Đề xuất (a). *Đã làm (a)
+   trên bản sao `rtl/matrix_if_xif`, chờ bạn cùng nhóm đồng ý.*
 3. **`mem_ready`: làm đủ bắt tay valid/ready.** Mục tiêu tiếp theo là AXI, nơi bus có thể chưa
    nhận yêu cầu, nên không dựa vào việc core luôn nhận ngay. `matrix_tile_ls` hiện phát yêu cầu
    một chu kỳ rồi đi tiếp (store không chờ gì cả), nên adapter không thể tự giữ hộ mà không có
@@ -258,11 +284,10 @@ vì core không gắn coprocessor thì hành vi không đổi.
    `ST_LOAD_REQ`/`ST_STORE_REQ` (cùng địa chỉ, dữ liệu) cho tới khi `mem_ready = 1`. Khi
    `mem_ready` luôn bằng 1 thì hành vi và số chu kỳ không đổi (golden phải trùng). Cần bạn cùng
    nhóm đồng ý, gộp chung với cổng `mem_last` ở câu 2. Với bộ nhớ hiện tại core luôn trả
-   `mem_ready = 1` (MEM trống khi lệnh ma trận ở EX); testbench của adapter sẽ thử `mem_ready`
-   ngẫu nhiên.
-4. **Hazard bảo thủ.** Coi mọi lệnh 0x2B đọc cả `rs1`, `rs2` (đúng tinh thần XIF, có thể chậm
-   hơn vài chu kỳ), hay giữ `mx_uses_rs*` trong core (số chu kỳ như cũ, nhưng core lại phải biết
-   về lệnh ma trận)?
+   `mem_ready = 1` (MEM trống khi lệnh ma trận ở EX); testbench của adapter thử `mem_ready`
+   ngẫu nhiên. *Đã làm trên bản sao `rtl/matrix_if_xif`, chờ bạn cùng nhóm đồng ý.*
+4. **Hazard bảo thủ.** Coi mọi lệnh 0x2B đọc cả `rs1`, `rs2`. *Đã chốt:* đúng với spec, và với
+   core có forwarding chỉ tốn thêm chu kỳ ở trường hợp load-use (mục 6.1).
 5. **Chỉ offload opcode 0x2B.** Spec cho phép core offload mọi lệnh nó không hiểu. Để đơn giản và
    giữ ACT4 không đổi, chỉ offload custom-1 (0x2B). *Đã chốt.*
 6. **Kết quả cho store.** Giữ đúng spec: core phát `mem_result` cho mọi `mem_req`, cả load lẫn
@@ -273,7 +298,10 @@ vì core không gắn coprocessor thì hành vi không đổi.
 ## 10. Thứ tự làm
 
 1. `cvxif_pkg.sv` và `matrix_xif_adapter.sv`, cùng một testbench nhỏ chỉ cho adapter, có checker.
-2. Thêm cổng XIF vào `Core.v`. Chạy ACT4 RTL 119 ELF: phải PASS với số chu kỳ trùng kết quả cũ.
+   *Xong 01/11/2026* (mục 8).
+2. Sao chép `rtl/core_if` sang `rtl/core_if_xif` và thêm cổng XIF. Chạy ACT4 RTL 119 ELF với
+   cổng XIF nối cố định: phải PASS với số chu kỳ trùng core forwarding (tổng 3 421 861), và
+   `run_core_diff` so với `rtl/core_if` phải trùng.
 3. Top `core_matrix_xif.v`. Chạy `run_matrix_regress.py --dut core_matrix_xif --core uut.u_core`:
    phải trùng golden 7/7.
 4. Netlist và lockstep cho `core`; tổng hợp KV260 cho `core` và `core_matrix_xif`.
