@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>SoC RV32IF + Matrix: cơ chế halt và ngắt</title>
+<style>
+  @page { size: A4; margin: 13mm 14mm 13mm 14mm; }
+  :root {
+    --ink: #1d2433; --muted: #5b6475; --line: #c9cfdb; --soft: #f3f5f9;
+    --ps: #dbe7fb; --ps-b: #3b6fc4;
+    --ip: #e6e8ee; --ip-b: #6b7385;
+    --have: #dff3e4; --have-b: #2f8a4c;
+    --new: #fde9d6; --new-b: #c8692a;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", "Noto Sans", Arial, sans-serif; color: var(--ink);
+         font-size: 10.3pt; line-height: 1.45; margin: 0; background: #fff; }
+  h1 { font-size: 18pt; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 14px; }
+  h2 { font-size: 13pt; margin: 20px 0 6px; padding-bottom: 3px; border-bottom: 1.5px solid var(--line); }
+  h3 { font-size: 11pt; margin: 14px 0 4px; }
+  p { margin: 5px 0; }
+  ul, ol { margin: 4px 0 6px 20px; padding: 0; }
+  li { margin: 2px 0; }
+  code { font-family: Consolas, "Cascadia Mono", monospace; font-size: 9.2pt;
+         background: var(--soft); padding: 0 3px; border-radius: 3px; }
+  pre { font-family: Consolas, "Cascadia Mono", monospace; font-size: 8.8pt; background: var(--soft);
+        border: 1px solid var(--line); border-radius: 3px; padding: 6px 9px; margin: 6px 0;
+        white-space: pre; line-height: 1.35; page-break-inside: avoid; break-inside: avoid; }
+  table { border-collapse: collapse; width: 100%; margin: 6px 0 8px; font-size: 9.4pt; }
+  th, td { border: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: top; }
+  th { background: var(--soft); font-weight: 600; }
+  td.num, th.num { text-align: right; }
+  tr.new td { background: #fff8f1; }
+  .fig { margin: 8px 0 4px; page-break-inside: avoid; break-inside: avoid; }
+  .fig svg { width: 100%; height: auto; display: block; }
+  .cap { text-align: center; color: var(--muted); font-size: 9pt; margin: 2px 0 10px; }
+  .box { border: 1px solid var(--line); border-left: 4px solid var(--ps-b); background: #f7f9fd;
+         padding: 6px 10px; margin: 8px 0; border-radius: 3px; }
+  .warn { border-left-color: var(--new-b); background: #fff8f1; }
+  .ok { border-left-color: var(--have-b); background: #f3fbf5; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 9pt; color: var(--muted); margin: 2px 0 6px; }
+  .sw { display: inline-block; width: 12px; height: 12px; border: 1.3px solid; vertical-align: -2px; margin-right: 4px; border-radius: 2px; }
+  .nobreak { page-break-inside: avoid; break-inside: avoid; }
+  .pb { page-break-before: always; break-before: page; }
+  svg text { font-family: "Segoe UI", "Noto Sans", Arial, sans-serif; fill: #1d2433; }
+  .tag { display: inline-block; font-size: 8.5pt; padding: 0 5px; border-radius: 3px; border: 1px solid var(--new-b);
+         color: var(--new-b); background: #fff8f1; margin-left: 4px; vertical-align: 1px; }
+</style>
+</head>
+<body>
+
+<h1>SoC RV32IF + Matrix (CV-X-IF): cơ chế halt và ngắt</h1>
+<p class="sub">Các cải tiến so với wrapper KR260 của partner, lý do, cách hoạt động và cách kiểm chứng.
+RTL: <code>rtl/core_matrix_xif/rv32if_xif_soc.v</code>, <code>halt_detect.v</code> · Testbench:
+<code>tb/soc_xif/</code> · Kiến trúc tổng thể: <code>docs/kien_truc_soc_xif_bram.pdf</code></p>
+
+<h2>1. Tóm tắt</h2>
+<p>SoC mới giữ nguyên bảng thanh ghi 0x00–0x28 của partner (<code>fpga/kr260/rtl/rv32if_matrix_axi.v</code>), để phần mềm
+PS hai bên tương thích. Có hai thay đổi bắt buộc và bốn cải tiến nhỏ. Mỗi cải tiến chỉ cần một bộ đếm, một bộ so sánh hoặc vài flip-flop.</p>
+<table>
+  <tr><th style="width:23%">Hạng mục</th><th style="width:37%">Partner (<code>rv32if_matrix_axi</code>)</th><th>SoC mới (<code>rv32if_xif_soc</code>)</th></tr>
+  <tr><td>Bộ nhớ</td><td>IMEM/DMEM 1 KB trong IP, truy cập qua cửa sổ AXI4-Lite, bị khóa khi RUN = 1</td>
+      <td><b>Bắt buộc đổi:</b> BRAM True Dual Port. Port A cho PS (AXI BRAM Controller, AXI4 có burst), port B cho core. Không khóa. Kích thước theo tham số (mặc định 16 KB / 64 KB)</td></tr>
+  <tr><td>Phát hiện dừng</td><td>Đầu ra IMEM bằng 0x6F liên tục 64 chu kỳ</td>
+      <td><b>Bắt buộc đổi:</b> <code>jal x0,0</code> ở tầng EX (<code>halt_hint</code>) + 3 chu kỳ xả. Chạy đúng với core fetch liên tục</td></tr>
+  <tr class="new"><td>CYCLES <span class="tag">cải tiến</span></td><td>Gồm thêm khoảng 64 chu kỳ của bộ phát hiện; về 0 khi RUN = 0</td>
+      <td>Dừng đếm đúng ở lệnh cuối; giữ giá trị sau RUN = 0</td></tr>
+  <tr class="new"><td>Ngắt <span class="tag">cải tiến</span></td><td><code>irq = halted</code> theo mức; chỉ hạ được bằng RUN = 0 (reset core)</td>
+      <td>IRQ_EN + IRQ_STATUS (W1C). Hạ <code>irq</code> mà không reset core, không bị gọi lặp</td></tr>
+  <tr class="new"><td>Watchdog <span class="tag">cải tiến</span></td><td>Không có: chương trình treo thì không bao giờ có ngắt</td>
+      <td>MAX_CYCLES: ngắt timeout khi CYCLES chạm ngưỡng</td></tr>
+  <tr class="new"><td>Kết quả PASS/FAIL <span class="tag">cải tiến</span></td><td>PS phải tự tính đáp án rồi so DMEM</td>
+      <td>EXIT_CODE: chốt giá trị chương trình store vào TOHOST (0x3FF0)</td></tr>
+  <tr class="new"><td>Lần chạy mới <span class="tag">cải tiến</span></td><td>Bộ đếm xóa khi core ở reset</td>
+      <td>RUN 0→1 xóa CYCLES, MDONE_CNT, IRQ_STATUS, EXIT_CODE; RUN 1→0 thì giữ nguyên để đọc sau</td></tr>
+</table>
+
+<h2>2. Vị trí trong SoC</h2>
+<div class="legend">
+  <span><span class="sw" style="background:var(--ps);border-color:var(--ps-b)"></span>PS (cứng)</span>
+  <span><span class="sw" style="background:var(--ip);border-color:var(--ip-b)"></span>IP của Xilinx</span>
+  <span><span class="sw" style="background:var(--have);border-color:var(--have-b)"></span>Đã có, đã kiểm chứng</span>
+  <span><span class="sw" style="background:var(--new);border-color:var(--new-b)"></span>Mới trong tài liệu này</span>
+</div>
+<div class="fig">
+<svg viewBox="0 0 900 415" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1d2433"/></marker>
+  </defs>
+  <!-- PS -->
+  <rect x="15" y="20" width="180" height="365" rx="6" fill="#dbe7fb" stroke="#3b6fc4" stroke-width="1.5"/>
+  <text x="105" y="42" text-anchor="middle" font-size="14" font-weight="600">Zynq UltraScale+ PS</text>
+  <rect x="35" y="60" width="140" height="60" rx="4" fill="#fff" stroke="#3b6fc4"/>
+  <text x="105" y="84" text-anchor="middle" font-size="12.5">Cortex-A53 ×4</text>
+  <text x="105" y="103" text-anchor="middle" font-size="11" fill="#5b6475">điều khiển SoC</text>
+  <text x="185" y="152" text-anchor="end" font-size="11">M_AXI_HPM0_FPD</text>
+  <text x="105" y="200" text-anchor="middle" font-size="11" fill="#5b6475">pl_clk0 = 100 MHz</text>
+  <text x="105" y="215" text-anchor="middle" font-size="11" fill="#5b6475">(cho toàn bộ PL)</text>
+  <rect x="35" y="305" width="140" height="58" rx="4" fill="#fff" stroke="#3b6fc4"/>
+  <text x="105" y="328" text-anchor="middle" font-size="12.5">GIC</text>
+  <text x="105" y="347" text-anchor="middle" font-size="11" fill="#5b6475">pl_ps_irq0 = SPI 121</text>
+  <!-- SmartConnect -->
+  <rect x="230" y="60" width="110" height="205" rx="6" fill="#e6e8ee" stroke="#6b7385" stroke-width="1.3"/>
+  <text x="285" y="155" text-anchor="middle" font-size="12.5" font-weight="600">AXI</text>
+  <text x="285" y="172" text-anchor="middle" font-size="12.5" font-weight="600">SmartConnect</text>
+  <line x1="195" y1="162" x2="228" y2="162" stroke="#1d2433" stroke-width="1.4" marker-end="url(#ar)"/>
+  <!-- BRAM controllers -->
+  <rect x="380" y="40" width="140" height="60" rx="5" fill="#e6e8ee" stroke="#6b7385"/>
+  <text x="450" y="64" text-anchor="middle" font-size="12">AXI BRAM Ctrl</text>
+  <text x="450" y="82" text-anchor="middle" font-size="11" fill="#5b6475">IMEM · 0xA001_0000</text>
+  <rect x="380" y="130" width="140" height="60" rx="5" fill="#e6e8ee" stroke="#6b7385"/>
+  <text x="450" y="154" text-anchor="middle" font-size="12">AXI BRAM Ctrl</text>
+  <text x="450" y="172" text-anchor="middle" font-size="11" fill="#5b6475">DMEM · 0xA002_0000</text>
+  <line x1="340" y1="70" x2="378" y2="70" stroke="#1d2433" stroke-width="1.3" marker-end="url(#ar)"/>
+  <line x1="340" y1="160" x2="378" y2="160" stroke="#1d2433" stroke-width="1.3" marker-end="url(#ar)"/>
+  <text x="359" y="64" text-anchor="middle" font-size="10" fill="#5b6475">AXI4</text>
+  <text x="359" y="154" text-anchor="middle" font-size="10" fill="#5b6475">AXI4</text>
+  <!-- BRAMs -->
+  <rect x="560" y="40" width="130" height="60" rx="5" fill="#e6e8ee" stroke="#6b7385"/>
+  <text x="625" y="64" text-anchor="middle" font-size="12">BRAM IMEM</text>
+  <text x="625" y="82" text-anchor="middle" font-size="11" fill="#5b6475">16 KB · port A | B</text>
+  <rect x="560" y="130" width="130" height="60" rx="5" fill="#e6e8ee" stroke="#6b7385"/>
+  <text x="625" y="154" text-anchor="middle" font-size="12">BRAM DMEM</text>
+  <text x="625" y="172" text-anchor="middle" font-size="11" fill="#5b6475">64 KB · port A | B</text>
+  <line x1="520" y1="70" x2="558" y2="70" stroke="#1d2433" stroke-width="1.3" marker-end="url(#ar)"/>
+  <line x1="520" y1="160" x2="558" y2="160" stroke="#1d2433" stroke-width="1.3" marker-end="url(#ar)"/>
+  <text x="539" y="64" text-anchor="middle" font-size="10" fill="#5b6475">A</text>
+  <text x="539" y="154" text-anchor="middle" font-size="10" fill="#5b6475">A</text>
+  <!-- SoC -->
+  <rect x="375" y="225" width="510" height="165" rx="6" fill="#fffaf5" stroke="#c8692a" stroke-width="1.6"/>
+  <text x="390" y="244" font-size="13" font-weight="600">rv32if_xif_soc</text>
+  <rect x="390" y="255" width="285" height="58" rx="4" fill="#fde9d6" stroke="#c8692a"/>
+  <text x="532" y="275" text-anchor="middle" font-size="12">Thanh ghi AXI4-Lite · 0xA000_0000</text>
+  <text x="532" y="293" text-anchor="middle" font-size="10.5" fill="#5b6475">0x00–0x28 như partner</text>
+  <text x="532" y="306" text-anchor="middle" font-size="10.5" fill="#5b6475">+ IRQ_EN, IRQ_STATUS, EXIT_CODE, MAX_CYCLES, CONFIG</text>
+  <rect x="690" y="255" width="185" height="58" rx="4" fill="#dff3e4" stroke="#2f8a4c"/>
+  <text x="782" y="277" text-anchor="middle" font-size="12">core_matrix_xif</text>
+  <text x="782" y="295" text-anchor="middle" font-size="10.5" fill="#5b6475">RV32IF + CV-X-IF + matrix</text>
+  <rect x="390" y="323" width="120" height="55" rx="4" fill="#fde9d6" stroke="#c8692a"/>
+  <text x="450" y="345" text-anchor="middle" font-size="11.5">CYCLES</text>
+  <text x="450" y="362" text-anchor="middle" font-size="11.5">+ watchdog</text>
+  <rect x="520" y="323" width="120" height="55" rx="4" fill="#fde9d6" stroke="#c8692a"/>
+  <text x="580" y="345" text-anchor="middle" font-size="11.5">Logic ngắt</text>
+  <text x="580" y="362" text-anchor="middle" font-size="10.5" fill="#5b6475">EN · STATUS (W1C)</text>
+  <rect x="650" y="323" width="105" height="55" rx="4" fill="#dff3e4" stroke="#2f8a4c"/>
+  <text x="702" y="345" text-anchor="middle" font-size="11.5">halt_detect</text>
+  <text x="702" y="362" text-anchor="middle" font-size="10.5" fill="#5b6475">halt_hint, ended</text>
+  <rect x="765" y="323" width="110" height="55" rx="4" fill="#fde9d6" stroke="#c8692a"/>
+  <text x="820" y="345" text-anchor="middle" font-size="11.5">TOHOST</text>
+  <text x="820" y="362" text-anchor="middle" font-size="10.5" fill="#5b6475">→ EXIT_CODE</text>
+  <!-- port B -->
+  <polyline points="690,70 840,70 840,253" fill="none" stroke="#1d2433" stroke-width="1.3" marker-end="url(#ar)"/>
+  <polyline points="690,160 760,160 760,253" fill="none" stroke="#1d2433" stroke-width="1.3" marker-end="url(#ar)"/>
+  <text x="850" y="150" font-size="10.5" fill="#5b6475">B (fetch)</text>
+  <text x="752" y="210" text-anchor="end" font-size="10.5" fill="#5b6475">B (load/store, mld/mst)</text>
+  <!-- s_axi -->
+  <polyline points="340,250 360,250 360,284 388,284" fill="none" stroke="#1d2433" stroke-width="1.3" marker-end="url(#ar)"/>
+  <text x="355" y="302" text-anchor="end" font-size="10" fill="#5b6475">AXI4-Lite</text>
+  <!-- irq -->
+  <polyline points="580,378 580,402 105,402 105,365" fill="none" stroke="#c8692a" stroke-width="1.6" marker-end="url(#ar)"/>
+  <text x="345" y="397" text-anchor="middle" font-size="11" fill="#c8692a">irq (mức cao, ra từ flip-flop)</text>
+</svg>
+</div>
+<p class="cap">Hình 1. SoC trên block design. Các khối màu cam là phần tài liệu này mô tả; chúng nằm trong <code>rv32if_xif_soc</code>.</p>
+
+<h2>3. Phát hiện kết thúc chương trình</h2>
+<p>Quy ước giữ nguyên như partner: chương trình kết thúc bằng <code>jal x0,0</code> (0x0000006F), tức là nhảy tại chỗ mãi mãi.
+Thứ thay đổi là <b>cách SoC nhận ra</b> chương trình đã tới lệnh đó.</p>
+<table>
+  <tr><th style="width:20%"></th><th style="width:40%">Partner</th><th>SoC mới</th></tr>
+  <tr><td>Nhìn vào đâu</td><td>Đầu ra của IMEM (lệnh vừa được fetch)</td><td>Lệnh đang thực thi ở tầng EX (<code>halt_hint</code> trong <code>Core.v</code>)</td></tr>
+  <tr><td>Điều kiện</td><td>0x6F liên tục 64 chu kỳ và <code>matrix_busy = 0</code></td><td><code>jal x0,0</code> đã tới EX, coprocessor rảnh (<code>xif_idle</code>), rồi chờ 3 chu kỳ xả MEM/WB</td></tr>
+  <tr><td>Trễ đến lúc <code>halted</code> bật</td><td>khoảng 64 chu kỳ</td><td><b>4 chu kỳ</b> (EX → seen → 3 chu kỳ xả)</td></tr>
+  <tr><td>Với core fetch liên tục</td><td><b>Không chạy được</b>: IMEM liên tục trả cả lệnh sai đường (sau một nhánh), nên không bao giờ thấy 0x6F đủ 64 chu kỳ liền</td><td>Đúng: chỉ lệnh đúng đường mới tới EX. Lệnh sai đường bị xóa ở IF/ID trước khi kịp tới EX</td></tr>
+</table>
+<p>Vì sao 3 chu kỳ xả là đủ: khi <code>jal</code> ở EX, mọi lệnh cũ hơn chỉ còn nằm ở MEM hoặc WB. Một lệnh FP nhiều chu kỳ hoặc
+một lệnh ma trận gửi qua CV-X-IF sẽ giữ EX cho tới khi xong, nên không thể còn đang chạy phía sau <code>jal</code>.
+Ba chu kỳ cho phép MEM/WB hoàn tất và lệnh store cuối cùng được bộ nhớ xác nhận (<code>valid</code>).</p>
+
+<h2>4. CYCLES: đếm đúng số chu kỳ chạy thật <span class="tag">cải tiến</span></h2>
+<p><code>halt_detect</code> có thêm đầu ra <code>ended</code>. Tín hiệu này lên 1 ngay ở chu kỳ sau khi <code>jal</code> tới EX (nếu coprocessor rảnh),
+tức là <b>sớm hơn <code>halted</code> 3 chu kỳ</b>. CYCLES đếm khi <code>core_rst_n = 1</code> và <code>ended = 0</code>. Vì vậy:</p>
+<div class="box ok"><b>CYCLES = số chu kỳ từ lúc core ra khỏi reset tới hết chu kỳ lệnh <code>jal x0,0</code> thực thi ở EX.</b>
+Không gồm thời gian xả, cũng không gồm trễ của bộ phát hiện. Testbench kiểm tra ở mọi lần chạy:
+<code>CYCLES = (chu kỳ halted) − 3</code>, và với chương trình scalar <code>CYCLES = (chu kỳ jal ở EX) + 1</code>.</div>
+
+<div class="fig">
+<svg viewBox="0 0 900 262" xmlns="http://www.w3.org/2000/svg">
+  <g font-size="11.5">
+    <!-- header -->
+    <text x="10" y="20" font-weight="600">chu kỳ core</text>
+    <g text-anchor="middle" font-size="11">
+      <text x="235" y="20">307</text><text x="305" y="20">308</text><text x="375" y="20">309</text>
+      <text x="445" y="20">310</text><text x="515" y="20">311</text><text x="585" y="20">312</text>
+      <text x="655" y="20">313</text><text x="725" y="20">314</text><text x="795" y="20">315</text>
+    </g>
+    <g stroke="#c9cfdb" stroke-width="1">
+      <line x1="200" y1="28" x2="200" y2="255"/><line x1="270" y1="28" x2="270" y2="255"/>
+      <line x1="340" y1="28" x2="340" y2="255"/><line x1="410" y1="28" x2="410" y2="255"/>
+      <line x1="480" y1="28" x2="480" y2="255"/><line x1="550" y1="28" x2="550" y2="255"/>
+      <line x1="620" y1="28" x2="620" y2="255"/><line x1="690" y1="28" x2="690" y2="255"/>
+      <line x1="760" y1="28" x2="760" y2="255"/><line x1="830" y1="28" x2="830" y2="255"/>
+    </g>
+    <!-- row 1: EX -->
+    <text x="10" y="50">lệnh ở EX</text>
+    <text x="305" y="50" text-anchor="middle" font-size="10.5">lệnh cuối</text>
+    <rect x="342" y="37" width="66" height="20" rx="3" fill="#fde9d6" stroke="#c8692a"/>
+    <text x="375" y="51" text-anchor="middle" font-size="10.5">jal x0,0</text>
+    <text x="620" y="50" text-anchor="middle" font-size="10.5" fill="#5b6475">quay vòng tại jal (vô hại)</text>
+    <!-- row 2: halt_hint -->
+    <text x="10" y="80">halt_hint</text>
+    <polyline points="200,82 340,82 340,68 410,68 410,82 830,82" fill="none" stroke="#3b6fc4" stroke-width="1.8"/>
+    <!-- row 3: ended -->
+    <text x="10" y="108">ended</text>
+    <polyline points="200,110 410,110 410,96 830,96" fill="none" stroke="#3b6fc4" stroke-width="1.8"/>
+    <!-- row 4: CYCLES -->
+    <text x="10" y="136">CYCLES</text>
+    <g text-anchor="middle" font-size="11">
+      <text x="235" y="136">307</text><text x="305" y="136">308</text><text x="375" y="136">309</text>
+      <text x="445" y="136" font-weight="700" fill="#2f8a4c">310</text><text x="515" y="136">310</text>
+      <text x="585" y="136">310</text><text x="655" y="136">310</text><text x="725" y="136">310</text><text x="795" y="136">310</text>
+    </g>
+    <text x="445" y="150" text-anchor="middle" font-size="9.5" fill="#2f8a4c">dừng đếm</text>
+    <!-- row 5: drain -->
+    <text x="10" y="176">drain_cnt</text>
+    <g text-anchor="middle" font-size="11">
+      <text x="235" y="176">0</text><text x="305" y="176">0</text><text x="375" y="176">0</text>
+      <text x="445" y="176">0</text><text x="515" y="176">1</text><text x="585" y="176">2</text>
+      <text x="655" y="176">2</text><text x="725" y="176">2</text><text x="795" y="176">2</text>
+    </g>
+    <!-- row 6: halted -->
+    <text x="10" y="206">halted</text>
+    <polyline points="200,208 620,208 620,194 830,194" fill="none" stroke="#3b6fc4" stroke-width="1.8"/>
+    <!-- row 7: irq -->
+    <text x="10" y="236">IRQ_STATUS[0], irq</text>
+    <polyline points="200,238 690,238 690,224 830,224" fill="none" stroke="#c8692a" stroke-width="1.8"/>
+    <text x="760" y="252" text-anchor="middle" font-size="9.5" fill="#c8692a">(nếu IRQ_EN[0] = 1)</text>
+  </g>
+</svg>
+</div>
+<p class="cap">Hình 2. Kết thúc chương trình P4 trong testbench (số chu kỳ thật từ mô phỏng): <code>jal</code> ở EX tại chu kỳ 309,
+CYCLES = 310, <code>halted</code> ở chu kỳ 313, <code>irq</code> ở chu kỳ 314. Với cách của partner, <code>halted</code> bật trễ khoảng 64 chu kỳ.</p>
+
+<p>So sánh trên cùng chương trình (testbench của partner và của SoC mới). Lưu ý: chênh lệch gồm <b>hai phần</b>, (1) core mới có forwarding
+và fetch liên tục, (2) CYCLES của partner gồm thêm khoảng 64 chu kỳ của bộ phát hiện.</p>
+<table class="nobreak">
+  <tr><th>Chương trình</th><th class="num">Partner (core cũ, CYCLES gồm ~64 chu kỳ phát hiện)</th><th class="num">SoC mới (core forwarding + CV-X-IF, CYCLES chính xác)</th></tr>
+  <tr><td>P1 GEMM int8 4×4×16</td><td class="num">481</td><td class="num">384</td></tr>
+  <tr><td>P2 GEMM FP32 4×4×4 + mfadd + lệnh F</td><td class="num">595</td><td class="num">495</td></tr>
+  <tr><td>P3 GEMM int8 K = 64 (4 khối)</td><td class="num">1 278</td><td class="num">1 142</td></tr>
+  <tr><td>P4 scalar RV32I + RV32F</td><td class="num">690</td><td class="num">310</td></tr>
+</table>
+
+<h2 class="pb">5. Ngắt: IRQ_EN + IRQ_STATUS (W1C) <span class="tag">cải tiến</span></h2>
+<h3>5.1 Vấn đề của <code>irq = halted</code></h3>
+<p>Trong wrapper của partner, <code>irq</code> nối thẳng với <code>halted</code>, mà <code>halted</code> giữ mức 1 cho tới khi core bị reset lại.
+GIC cấu hình ngắt theo mức nên:</p>
+<ol>
+  <li>Core dừng, <code>irq</code> lên 1, A53 nhảy vào hàm xử lý ngắt (ISR).</li>
+  <li>ISR chạy xong và thoát, nhưng <code>irq</code> <b>vẫn là 1</b>.</li>
+  <li>GIC lại gọi ISR, cứ thế lặp mãi (<b>interrupt storm</b>): CPU kẹt trong ISR.</li>
+</ol>
+<p>Cách duy nhất để thoát là ISR ghi <code>CTRL.RUN = 0</code>, tức là reset core. Hệ quả: CYCLES, MDONE_CNT và
+thanh ghi ma trận bị xóa, nên ISR buộc phải đọc hết các giá trị cần thiết trước khi ghi RUN = 0.</p>
+
+<h3>5.2 Cơ chế mới</h3>
+<div class="fig">
+<svg viewBox="0 0 900 240" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1d2433"/></marker>
+  </defs>
+  <g font-size="12">
+    <!-- inputs -->
+    <text x="10" y="54">halted</text>
+    <text x="10" y="164">timeout</text>
+    <text x="10" y="200" font-size="10" fill="#5b6475">(CYCLES ≥ MAX_CYCLES)</text>
+    <!-- edge detectors -->
+    <rect x="95" y="30" width="125" height="40" rx="4" fill="#fde9d6" stroke="#c8692a"/>
+    <text x="157" y="49" text-anchor="middle" font-size="11">bắt cạnh lên</text>
+    <text x="157" y="63" text-anchor="middle" font-size="10" fill="#5b6475">halted ∧ ¬halted_q</text>
+    <rect x="95" y="140" width="125" height="40" rx="4" fill="#fde9d6" stroke="#c8692a"/>
+    <text x="157" y="159" text-anchor="middle" font-size="11">bắt cạnh lên</text>
+    <text x="157" y="173" text-anchor="middle" font-size="10" fill="#5b6475">timeout ∧ ¬timeout_q</text>
+    <line x1="60" y1="50" x2="93" y2="50" stroke="#1d2433" stroke-width="1.3" marker-end="url(#ar2)"/>
+    <line x1="60" y1="160" x2="93" y2="160" stroke="#1d2433" stroke-width="1.3" marker-end="url(#ar2)"/>
+    <!-- status bits -->
+    <rect x="290" y="22" width="165" height="56" rx="4" fill="#fde9d6" stroke="#c8692a" stroke-width="1.4"/>
+    <text x="372" y="44" text-anchor="middle" font-size="12" font-weight="600">IRQ_STATUS[0]  done</text>
+    <text x="372" y="62" text-anchor="middle" font-size="10" fill="#5b6475">S = sự kiện · C = W1C · S thắng</text>
+    <rect x="290" y="132" width="165" height="56" rx="4" fill="#fde9d6" stroke="#c8692a" stroke-width="1.4"/>
+    <text x="372" y="154" text-anchor="middle" font-size="12" font-weight="600">IRQ_STATUS[1]  timeout</text>
+    <text x="372" y="172" text-anchor="middle" font-size="10" fill="#5b6475">S = sự kiện · C = W1C · S thắng</text>
+    <line x1="220" y1="50" x2="288" y2="50" stroke="#1d2433" stroke-width="1.3" marker-end="url(#ar2)"/>
+    <line x1="220" y1="160" x2="288" y2="160" stroke="#1d2433" stroke-width="1.3" marker-end="url(#ar2)"/>
+    <text x="254" y="44" text-anchor="middle" font-size="10" fill="#5b6475">S</text>
+    <text x="254" y="154" text-anchor="middle" font-size="10" fill="#5b6475">S</text>
+    <!-- clear sources -->
+    <text x="372" y="108" text-anchor="middle" font-size="10.5" fill="#3b6fc4">PS ghi 1 vào bit (W1C) · RUN 0→1 · aresetn → C</text>
+    <line x1="372" y1="96" x2="372" y2="80" stroke="#3b6fc4" stroke-width="1.2" marker-end="url(#ar2)"/>
+    <line x1="372" y1="114" x2="372" y2="130" stroke="#3b6fc4" stroke-width="1.2" marker-end="url(#ar2)"/>
+    <!-- AND gates -->
+    <rect x="520" y="30" width="80" height="40" rx="4" fill="#fff" stroke="#1d2433"/>
+    <text x="560" y="55" text-anchor="middle">AND</text>
+    <rect x="520" y="140" width="80" height="40" rx="4" fill="#fff" stroke="#1d2433"/>
+    <text x="560" y="165" text-anchor="middle">AND</text>
+    <line x1="455" y1="50" x2="518" y2="50" stroke="#1d2433" stroke-width="1.3" marker-end="url(#ar2)"/>
+    <line x1="455" y1="160" x2="518" y2="160" stroke="#1d2433" stroke-width="1.3" marker-end="url(#ar2)"/>
+    <text x="560" y="92" text-anchor="middle" font-size="10.5" fill="#5b6475">IRQ_EN[0]</text>
+    <line x1="560" y1="96" x2="560" y2="72" stroke="#1d2433" stroke-width="1.1" marker-end="url(#ar2)"/>
+    <text x="560" y="210" text-anchor="middle" font-size="10.5" fill="#5b6475">IRQ_EN[1]</text>
+    <line x1="560" y1="200" x2="560" y2="182" stroke="#1d2433" stroke-width="1.1" marker-end="url(#ar2)"/>
+    <!-- OR + FF -->
+    <rect x="645" y="85" width="70" height="50" rx="4" fill="#fff" stroke="#1d2433"/>
+    <text x="680" y="115" text-anchor="middle">OR</text>
+    <polyline points="600,50 625,50 625,100 643,100" fill="none" stroke="#1d2433" stroke-width="1.3" marker-end="url(#ar2)"/>
+    <polyline points="600,160 625,160 625,120 643,120" fill="none" stroke="#1d2433" stroke-width="1.3" marker-end="url(#ar2)"/>
+    <rect x="745" y="85" width="60" height="50" rx="4" fill="#fde9d6" stroke="#c8692a"/>
+    <text x="775" y="109" text-anchor="middle">FF</text>
+    <text x="775" y="125" text-anchor="middle" font-size="9.5" fill="#5b6475">clk</text>
+    <line x1="715" y1="110" x2="743" y2="110" stroke="#1d2433" stroke-width="1.3" marker-end="url(#ar2)"/>
+    <line x1="805" y1="110" x2="845" y2="110" stroke="#c8692a" stroke-width="1.8" marker-end="url(#ar2)"/>
+    <text x="870" y="114" text-anchor="middle" font-weight="600" fill="#c8692a">irq</text>
+  </g>
+</svg>
+</div>
+<p class="cap">Hình 3. Logic ngắt. FF nạp giá trị kế tiếp của IRQ_STATUS và IRQ_EN, nên <code>irq</code> đổi ngay trong
+chu kỳ PS ghi (trước khi trả BRESP) mà vẫn ra từ flip-flop, không bị glitch.</p>
+<ul>
+  <li><b>IRQ_EN (0x2C):</b> chọn sự kiện nào được phát ngắt. Bit 0 là done, bit 1 là timeout. Ghi 0 để dùng polling.</li>
+  <li><b>IRQ_STATUS (0x30):</b> ghi nhận sự kiện đã xảy ra, <b>kể cả khi IRQ_EN = 0</b>, nên polling vẫn đọc được. PS ghi 1 vào bit nào thì bit đó về 0 (W1C). Ghi 0 không làm gì.</li>
+  <li><code>irq = OR(IRQ_STATUS[i] AND IRQ_EN[i])</code>. Nếu bật IRQ_EN khi đã có sự kiện đang chờ thì ngắt phát ra ngay.</li>
+</ul>
+
+<h3>5.3 Năm chi tiết làm cho cơ chế tin cậy</h3>
+<table>
+  <tr><th style="width:28%">Chi tiết</th><th>Tránh được lỗi gì</th></tr>
+  <tr><td>1. Bit status giữ lại, đặt tại <b>cạnh lên</b> của sự kiện</td><td>PS xóa xong thì bit nằm yên ở 0, dù <code>halted</code> vẫn đang là 1. Sự kiện xảy ra lúc PS chưa kịp xử lý cũng không bị mất.</td></tr>
+  <tr><td>2. Đặt và xóa cùng chu kỳ thì <b>ưu tiên đặt</b></td><td>Sự kiện mới đến đúng lúc PS đang xóa sự kiện cũ không bị nuốt. Biểu thức: <code>(status &amp; ~w1c) | event</code>.</td></tr>
+  <tr><td>3. GIC bắt <b>theo mức</b> (LEVEL_HIGH)</td><td>GIC không thể bỏ lỡ ngắt: <code>irq</code> giữ 1 cho tới khi được xóa. Kiểu bắt cạnh có thể lỡ nếu xung đến lúc GIC đang bận.</td></tr>
+  <tr><td>4. <code>irq</code> ra từ <b>flip-flop</b></td><td>Không có glitch trên dây ngắt.</td></tr>
+  <tr><td>5. Phần mềm <b>đọc lại</b> IRQ_STATUS sau khi xóa</td><td>Lệnh ghi AXI đi qua SmartConnect là <i>posted</i>. Nếu ISR thoát quá nhanh, GIC có thể vẫn thấy <code>irq = 1</code> và gọi ISR thừa một lần. Đọc lại một lần để bảo đảm lệnh ghi đã tới IP. Trên Linux là <code>readl()</code> sau <code>writel()</code>.</td></tr>
+</table>
+<div class="box">Bộ ba "bật ngắt / ngắt nào đã xảy ra / xóa" là cách làm quen thuộc trong IP của Xilinx (offset mỗi IP một khác):
+IP từ Vivado HLS (GIE 0x04, IER 0x08, ISR 0x0C), AXI DMA (DMACR.IOC_IrqEn / DMASR.IOC_Irq, W1C), AXI Timer (TCSR.ENIT / TINT, W1C),
+AXI GPIO (GIER 0x11C, IP IER 0x128, IP ISR 0x120). Driver phía PS vì vậy theo một mẫu đã quen thuộc.</div>
+
+<h2>6. Watchdog MAX_CYCLES <span class="tag">cải tiến</span></h2>
+<p>Nếu chương trình bị treo (lặp vô hạn, kịch bản P6), <code>halted</code> không bao giờ bật. Với cách của partner,
+chạy kiểu ngắt thì PS chờ mãi; chạy polling thì phần mềm phải tự đặt timeout.</p>
+<ul>
+  <li><b>MAX_CYCLES (0x38):</b> khi đang chạy và CYCLES ≥ MAX_CYCLES, cờ <code>timeout</code> bật (STATUS[4]) và IRQ_STATUS[1] được đặt. <b>Ghi 0 để tắt</b> (mặc định).</li>
+  <li>Core <b>vẫn chạy tiếp</b>; PS tự quyết định dừng bằng RUN = 0, hoặc đọc PC để debug.</li>
+  <li>Bộ đếm dừng khi chương trình kết thúc (<code>ended</code>), nên một chương trình đã xong không bao giờ gây timeout, dù PS chờ bao lâu.</li>
+  <li>CYCLES bão hòa ở 0xFFFF_FFFF, khoảng 43 giây ở 100 MHz, nên không bị tràn về 0.</li>
+</ul>
+<p>Ví dụ: <code>MAX_CYCLES = 10 000 000</code> nghĩa là 0,1 s ở 100 MHz.</p>
+
+<h2>7. TOHOST → EXIT_CODE <span class="tag">cải tiến</span></h2>
+<p><b>TOHOST</b> là một địa chỉ cố định mà chương trình ghi vào để báo kết quả cho bên ngoài (host). Quy ước này lấy từ
+riscv-tests / Spike, và ACT4 cũng dùng. <code>sw/matrix/start.S</code> đã dùng sẵn: sau <code>main</code>, nó store 1 vào 0x3FF0 rồi
+chạy <code>jal x0,0</code>, và <code>tb/matrix/tb_matrix_regress.sv</code> bắt đúng lệnh store đó.</p>
+<ul>
+  <li>SoC theo dõi bus DMEM của core: khi có lệnh ghi vào word 0x3FF0, nó chốt dữ liệu store vào <b>EXIT_CODE (0x34)</b> và bật STATUS[5].</li>
+  <li>Lệnh store <b>vẫn đi vào DMEM</b> như bình thường, nên PS cũng đọc được qua BRAM.</li>
+  <li>Việc dừng vẫn <b>chỉ dựa vào <code>jal x0,0</code></b>: có một cơ chế dừng duy nhất, dễ kiểm chứng. Chương trình không ghi TOHOST thì EXIT_CODE = 0.</li>
+  <li>Nên dùng <code>sw</code> (cả word). Nếu nhiều lệnh store vào TOHOST, lệnh cuối cùng được giữ.</li>
+</ul>
+<p>Gợi ý (chưa áp dụng): <code>start.S</code> có thể store <code>(main() &lt;&lt; 1) | 1</code> theo kiểu riscv-tests. Khi đó 1 là PASS,
+còn 3/5/7… là sai ở test 1/2/3…. Các chương trình regress hiện trả về 0 nên vẫn store 1, không ảnh hưởng gì.</p>
+
+<h2>8. Vòng đời một lần chạy <span class="tag">cải tiến</span></h2>
+<table>
+  <tr><th style="width:24%">Thao tác PS</th><th>Ảnh hưởng</th></tr>
+  <tr><td>Ghi RUN 0→1</td><td>Xóa CYCLES, MDONE_CNT, IRQ_STATUS, EXIT_CODE, STATUS[3..5]. Một chu kỳ sau, core ra khỏi reset và chạy từ PC = 0. Ngắt còn sót từ lần trước không phát nhầm.</td></tr>
+  <tr><td>Ghi 1 vào IRQ_STATUS</td><td>Hạ <code>irq</code>. Core, CYCLES và thanh ghi ma trận giữ nguyên.</td></tr>
+  <tr><td>Ghi RUN 1→0</td><td>Core (cùng khối ma trận) vào reset. CYCLES, MDONE_CNT, EXIT_CODE, IRQ_STATUS <b>giữ nguyên</b> để PS đọc sau.</td></tr>
+  <tr><td>s_axi_aresetn</td><td>Xóa toàn bộ thanh ghi. Nội dung BRAM không bị xóa, nên có thể chạy lại ngay.</td></tr>
+</table>
+
+<h2 class="pb">9. Bảng thanh ghi (base 0xA000_0000, cửa sổ 4 KB)</h2>
+<table>
+  <tr><th style="width:9%">Offset</th><th style="width:15%">Tên</th><th style="width:8%">Kiểu</th><th>Nội dung</th></tr>
+  <tr><td>0x00</td><td>CTRL</td><td>RW</td><td>[0] RUN</td></tr>
+  <tr><td>0x04</td><td>STATUS</td><td>RO</td><td>[0] running · [1] halted · [2] matrix_busy · [3] đã có matrix_done · <b>[4] timeout · [5] EXIT_CODE đã ghi</b></td></tr>
+  <tr><td>0x08</td><td>CYCLES</td><td>RO</td><td>Chu kỳ tới hết lệnh <code>jal x0,0</code> ở EX (mục 4), bão hòa</td></tr>
+  <tr><td>0x0C</td><td>PC</td><td>RO</td><td>Địa chỉ fetch. Khi đã dừng thì nằm trong khoảng <code>jal</code> +0..12, vì fetch chạy trước</td></tr>
+  <tr><td>0x10–0x18</td><td>MTILEM/N/K</td><td>RO</td><td>Cấu hình tile của khối ma trận</td></tr>
+  <tr><td>0x1C</td><td>MDONE_CNT</td><td>RO</td><td>Số lệnh ma trận đã xong</td></tr>
+  <tr><td>0x20</td><td>MREG_SEL</td><td>RW</td><td>[2:0] id · [10:8] row · [18:16] beat</td></tr>
+  <tr><td>0x24</td><td>MREG_DATA</td><td>RW</td><td>Ghi/đọc một beat của thanh ghi ma trận (chỉ có tác dụng khi RUN = 1)</td></tr>
+  <tr><td>0x28</td><td>ID</td><td>RO</td><td>0x4B4C544E ("KLTN"), giống partner</td></tr>
+  <tr class="new"><td>0x2C</td><td>IRQ_EN</td><td>RW</td><td>[0] done · [1] timeout</td></tr>
+  <tr class="new"><td>0x30</td><td>IRQ_STATUS</td><td>R/W1C</td><td>[0] done · [1] timeout</td></tr>
+  <tr class="new"><td>0x34</td><td>EXIT_CODE</td><td>RO</td><td>Giá trị store cuối cùng vào TOHOST</td></tr>
+  <tr class="new"><td>0x38</td><td>MAX_CYCLES</td><td>RW</td><td>Ngưỡng watchdog, 0 = tắt</td></tr>
+  <tr class="new"><td>0x3C</td><td>CONFIG</td><td>RO</td><td>[7:0] phiên bản = 2 · [15:8] IMEM_AW · [23:16] DMEM_AW · [24] CV-X-IF. PS đọc để biết kích thước bộ nhớ</td></tr>
+</table>
+<p>Các offset khác đọc ra 0, ghi vào bị bỏ qua. Mọi giao dịch đều trả OKAY.
+Offset do nhóm tự đặt; Vivado không quy định gì bên trong IP tự viết. Base address được chọn trong Address Editor,
+trong vùng 0xA000_0000–0xAFFF_FFFF mà M_AXI_HPM0_FPD truy cập được.</p>
+
+<h2>10. Bộ nhớ và các tham số đổi được</h2>
+<table>
+  <tr><th style="width:22%">Thông số</th><th style="width:22%">Mặc định</th><th>Đổi ở đâu</th></tr>
+  <tr><td>IMEM</td><td>16 KB (<code>IMEM_AW = 14</code>)</td><td>Tham số của <code>rv32if_xif_soc</code>, kích thước BRAM/BRAM Controller trong TCL, linker script</td></tr>
+  <tr><td>DMEM</td><td>64 KB (<code>DMEM_AW = 16</code>)</td><td>Như trên (đỉnh stack, TOHOST trong <code>link.ld</code>)</td></tr>
+  <tr><td>TOHOST</td><td>0x3FF0</td><td>Tham số <code>TOHOST_ADDR</code> + <code>start.S</code></td></tr>
+  <tr><td>Clock</td><td>100 MHz (<code>pl_clk0</code>)</td><td>Một biến trong TCL block design; RTL không đổi</td></tr>
+</table>
+<ul>
+  <li>BRAM True Dual Port: port A cho AXI BRAM Controller (PS), port B cho core. Read latency 1, không dùng output register.
+      <code>valid</code> được tạo một chu kỳ sau <code>request</code>, giống <code>data_mem_top</code>.</li>
+  <li><b>Không khóa bộ nhớ</b>: PS đọc/ghi BRAM bất cứ lúc nào. Testbench P5 dùng điều này cho trao đổi PS ↔ core: core chờ một cờ trong DMEM, PS ghi cờ đó trong lúc core đang chạy.</li>
+  <li>Ảnh chương trình: nạp cùng một file vào cả IMEM lẫn DMEM. Code nằm từ địa chỉ 0; dữ liệu, stack và TOHOST nằm trong phần DMEM của bản đồ địa chỉ (<code>sw/matrix/link.ld</code>).</li>
+  <li>Kích thước nên là lũy thừa của 2, từ 4 KB trở lên (yêu cầu của AXI BRAM Controller). 16 + 64 KB tương đương 20/144 khối BRAM36 của K26.</li>
+</ul>
+
+<h2>11. Phần mềm phía PS (bare-metal, minh họa)</h2>
+<pre>#define SOC   ((volatile uint32_t *)0xA0000000u)   /* thanh ghi */
+#define IMEM  ((volatile uint32_t *)0xA0010000u)   /* AXI BRAM Controller IMEM */
+#define DMEM  ((volatile uint32_t *)0xA0020000u)   /* AXI BRAM Controller DMEM */
+enum { CTRL = 0x00/4, STATUS = 0x04/4, CYCLES = 0x08/4, IRQ_EN = 0x2C/4,
+       IRQ_STATUS = 0x30/4, EXIT_CODE = 0x34/4, MAX_CYCLES = 0x38/4 };
+
+void soc_start(const uint32_t *img, int nwords) {
+    SOC[CTRL] = 0;                                  /* core vào reset */
+    for (int i = 0; i &lt; nwords; i++) { IMEM[i] = img[i]; DMEM[i] = img[i]; }
+    SOC[MAX_CYCLES] = 10000000;                     /* 0,1 s ở 100 MHz */
+    SOC[IRQ_EN] = 0x3;                              /* done + timeout */
+    SOC[CTRL] = 1;                                  /* RUN 0->1: xóa bộ đếm, chạy */
+}
+
+void soc_isr(void) {                                /* SPI 121 */
+    uint32_t st = SOC[IRQ_STATUS];
+    if (st &amp; 1) { result.cycles = SOC[CYCLES]; result.exit = SOC[EXIT_CODE]; result.done = 1; }
+    if (st &amp; 2) { SOC[CTRL] = 0; result.timeout = 1; }   /* treo: dừng core */
+    SOC[IRQ_STATUS] = st;                           /* W1C: hạ irq */
+    (void)SOC[IRQ_STATUS];                          /* đọc lại: lệnh ghi đã tới IP */
+}
+
+/* Không dùng ngắt: SOC[IRQ_EN] = 0, rồi chờ (SOC[STATUS] &amp; 0x12) != 0 (halted hoặc timeout). */</pre>
+
+<h2>12. Kiểm chứng</h2>
+<p><code>bash tb/soc_xif/run.sh</code> (Icarus Verilog 12) chạy testbench hai lần, với BRAM ở chế độ <b>WRITE_FIRST</b> (mặc định của
+Block Memory Generator) và <b>NO_CHANGE</b>, để bảo đảm core không phụ thuộc vào giá trị DOUT trong lúc ghi.
+Kết quả: <b>534 PASS / 0 FAIL ở cả hai chế độ</b> (<code>SOC_XIF_ALL_PASS</code>).</p>
+<table>
+  <tr><th style="width:9%">Kịch bản</th><th>Nội dung</th><th class="num" style="width:9%">Số kiểm tra</th></tr>
+  <tr><td>P1 ×5</td><td>GEMM int8 4×4×16, 5 bộ dữ liệu ngẫu nhiên; kết quả qua MREG và DMEM; PS đọc DMEM khi RUN = 1; trạng thái giữ sau stop</td><td class="num">5 × 52</td></tr>
+  <tr><td>P2</td><td>GEMM FP32 + mfadd.s.mm + lệnh F scalar</td><td class="num">45</td></tr>
+  <tr><td>P3</td><td>GEMM int8 K = 64, vòng lặp 4 khối + madd.w.mm</td><td class="num">43</td></tr>
+  <tr><td>P4</td><td>Scalar RV32I + RV32F (Fibonacci, sh/sb, fmadd, fdiv, fcvt)</td><td class="num">38</td></tr>
+  <tr><td>P5</td><td>AXI4-Lite: AW/W lệch nhau, BREADY/RREADY trễ, WSTRB; word cuối của 16 KB / 64 KB; core và PS trao đổi qua DMEM khi đang chạy</td><td class="num">13</td></tr>
+  <tr><td>P6</td><td>Chương trình treo, MAX_CYCLES = 0: không có irq, dừng bằng CTRL</td><td class="num">5</td></tr>
+  <tr><td>P7</td><td><code>s_axi_aresetn</code> giữa lúc chạy, rồi chạy lại</td><td class="num">23</td></tr>
+  <tr><td>P8</td><td>Cổng host thanh ghi ma trận (MREG)</td><td class="num">22</td></tr>
+  <tr class="new"><td>P9</td><td>IRQ_EN = 0 vẫn ghi nhận; ghi 0 / ghi bit khác không xóa; bật IRQ_EN khi đang chờ thì ngắt ngay; W1C hạ irq, CYCLES giữ nguyên; 200 chu kỳ sau không ngắt lại; RUN = 0 không xóa, RUN 0→1 xóa</td><td class="num">21</td></tr>
+  <tr class="new"><td>P10</td><td>Watchdog: irq sau 3003 chu kỳ với MAX_CYCLES = 3000; timeout bị che khi IRQ_EN[1] = 0; chương trình đã xong không gây timeout; MAX_CYCLES nhỏ hơn CYCLES thì có cả timeout lẫn done</td><td class="num">26</td></tr>
+  <tr class="new"><td>P11</td><td>TOHOST: lệnh store cuối được giữ; word bên cạnh không bị bắt; store vẫn vào DMEM; không ghi TOHOST thì EXIT_CODE = 0</td><td class="num">31</td></tr>
+  <tr class="new"><td>P12</td><td>ID, CONFIG, offset không dùng</td><td class="num">7</td></tr>
+</table>
+<p>Mọi lần chạy chương trình đều kiểm tra thêm: <code>CYCLES = halted − 3</code>, <code>irq</code> hạ ngay sau W1C, và PC nằm tại <code>jal</code>.
+Testbench P1–P8 lấy từ <code>fpga/kr260/tb/tb_kr260_programs.sv</code> của partner, chỉ sửa ở những chỗ SoC khác:
+bộ nhớ qua BRAM port A và không khóa, xóa ngắt bằng IRQ_STATUS, trạng thái giữ sau stop, PC +0..12.</p>
+
+<h2>13. Chi phí và việc tiếp theo</h2>
+<ul>
+  <li>Chi phí của các cải tiến (thanh ghi MAX_CYCLES và EXIT_CODE 32 bit, bộ so sánh 32 bit, bộ so sánh địa chỉ TOHOST, vài FF): ước tính
+      khoảng 100–150 LUT/FF, dưới 0,3 % thiết kế. Con số đo thật sẽ có ở lần implementation SoC.</li>
+  <li>Timing: đường đọc MREG_DATA (từ <code>msel</code> qua regfile ma trận tới <code>s_axi_rdata</code>) dài khoảng 7,5 ns, đạt ở 100 MHz. Nếu lên 125 MHz thì cần multicycle hoặc thêm một chu kỳ đọc.</li>
+  <li>Tiếp theo: TCL block design (PS + SmartConnect + 2 AXI BRAM Controller + 2 BRAM + <code>rv32if_xif_soc</code> + irq), build, đọc tài nguyên/WNS, rồi viết phần mềm PS.</li>
+</ul>
+
+</body>
+</html>

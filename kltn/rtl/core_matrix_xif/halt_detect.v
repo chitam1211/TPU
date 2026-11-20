@@ -12,6 +12,10 @@
 // jal. DRAIN_CYCLES (>= 2) lets MEM/WB finish and an outstanding store be acknowledged.
 // busy (optional, tie to 0) holds the count, e.g. while a coprocessor reports activity.
 // halted stays set until rst_n.
+// ended (optional output): 1 from the first cycle in which the jal has been seen and busy is 0,
+// i.e. DRAIN_CYCLES cycles before halted. A cycle counter that stops on ended counts the cycles
+// up to and including the one in which the jal executes (rtl/core_matrix_xif/rv32if_xif_soc.v),
+// without the drain.
 module halt_detect #(
     parameter DRAIN_CYCLES = 3
 )(
@@ -19,10 +23,13 @@ module halt_detect #(
     input  wire rst_n,
     input  wire halt_hint,
     input  wire busy,
-    output reg  halted
+    output reg  halted,
+    output wire ended
 );
     reg       seen;
     reg [3:0] drain_cnt;
+
+    assign ended = (seen && !busy) || drain_cnt != 4'd0 || halted;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
