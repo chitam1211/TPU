@@ -294,12 +294,20 @@ if {$i >= 0} {
     if {[llength $v] >= 3} { lassign $v _w tns fail }
 }
 
+# Cells of one report table row "| a | b | ... |" -> {a b ...}, trimmed.
+# Vivado 2022.2 runs Tcl 8.5: no lmap (8.6), so build the list with foreach.
+proc split_row {line} {
+    set f {}
+    foreach x [lrange [split $line |] 1 end-1] { lappend f [string trim $x] }
+    return $f
+}
+
 # Utilization rows: | Site Type | Used | Fixed | Prohibited | Available | Util% |
 set util [report_utilization -return_string]
 proc util_row {text name} {
     foreach line [split $text "\n"] {
         if {![string match "|*" $line]} { continue }
-        set f [lmap x [lrange [split $line |] 1 end-1] { string trim $x }]
+        set f [split_row $line]
         if {[string trimright [lindex $f 0] *] eq $name && [llength $f] >= 6} {
             return [format "%8s / %-7s (%s %%)" [lindex $f 1] [lindex $f 4] [lindex $f 5]]
         }
@@ -312,7 +320,7 @@ set hier [report_utilization -hierarchical -hierarchical_depth 8 -return_string]
 set cols {}; set rows [dict create]
 foreach line [split $hier "\n"] {
     if {![string match "|*" $line]} { continue }
-    set f [lmap x [lrange [split $line |] 1 end-1] { string trim $x }]
+    set f [split_row $line]
     if {[lindex $f 0] eq "Instance"} { set cols $f; continue }
     if {![llength $cols]} { continue }
     set inst [lindex $f 0]
